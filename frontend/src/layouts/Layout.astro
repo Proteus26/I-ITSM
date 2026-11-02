@@ -1,0 +1,47 @@
+---
+interface Props {
+  title?: string;
+}
+const { title = 'I-ITSM' } = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header>
+      <strong>I-ITSM</strong>
+      <span>Intelligent IT Service Management</span>
+    </header>
+    <main>
+      <slot />
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    font-family: system-ui, sans-serif;
+    color-scheme: light dark;
+  }
+  body {
+    margin: 0;
+  }
+  header {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  }
+  main {
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+</style>

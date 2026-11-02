@@ -1,0 +1,22 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { apiFetch } from '../lib/api';
+
+type Ping = { status: string; service: string; time: string };
+
+let ping: Ping | null = null;
+let error: string | null = null;
+try {
+  ping = await apiFetch<Ping>('/api/ping');
+} catch (e) {
+  error = e instanceof Error ? e.message : String(e);
+}
+---
+
+<Layout title="I-ITSM">
+  <h1>I-ITSM</h1>
+  <p>Base setup is running.</p>
+
+  <h2>Backend status</h2>
+  {ping ? <p>✅ {ping.service} is {ping.status} ({ping.time})</p> : <p>❌ Backend unreachable: {error}</p>}
+</Layout>
