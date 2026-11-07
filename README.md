@@ -20,12 +20,14 @@ CS F213 / MAC F212 OOP course project (Semester I, 2026–27). The brief is in
 .
 ├── backend/                 Spring Boot (Kotlin) REST API
 │   ├── src/main/kotlin/com/itsm/
+│   │   ├── auth/            JWT login/register, CurrentUser, bootstrap admin
+│   │   ├── user/            User model (Employee/Technician/Administrator), admin user API
 │   │   ├── config/          Security, CORS, other Spring config
 │   │   ├── common/exception Base exception hierarchy (ItsmException)
 │   │   └── web/             REST controllers + global exception handler
 │   ├── src/main/resources/
 │   │   ├── application.yml
-│   │   └── db/migration/    Flyway migrations (V1__*.sql, V2__*.sql, ...)
+│   │   └── db/migration/    Flyway migrations (V<yyyymmdd_hhmm>__*.sql)
 │   └── Dockerfile
 ├── frontend/                Astro app
 │   ├── src/pages/           Routes; src/pages/api/[...path].ts proxies /api/** to the backend
@@ -67,6 +69,9 @@ docker compose up --build
 | http://localhost:8080/actuator/health    | Backend health           |
 | `localhost:5432` (user/pass/db: `itsm`)  | PostgreSQL               |
 
+An admin account is created on first start: `admin@itsm.local` / `ChangeMe123!`
+(change these with `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env`).
+
 Stop with `docker compose down`. Add `-v` to also delete the database volume.
 
 ## Option 2: Local development (hot reload)
@@ -90,10 +95,13 @@ docker compose up -d db
 
 ```sh
 cd backend
+export JWT_SECRET=$(openssl rand -base64 48)    # required: the backend refuses to start without it
+export ADMIN_EMAIL=admin@itsm.local ADMIN_PASSWORD='ChangeMe123!'   # optional: creates the first admin
 ./gradlew bootRun
 ```
 
-It connects to `jdbc:postgresql://localhost:5432/itsm` by default. Override this with
+A new `JWT_SECRET` logs everyone out, so keep one value per terminal session (or put the
+exports in a local, uncommitted script). It connects to `jdbc:postgresql://localhost:5432/itsm` by default. Override this with
 `DB_URL`, `DB_USER` and `DB_PASSWORD`. Flyway applies migrations on startup.
 
 ### 4. Start the frontend (terminal 2)
@@ -125,20 +133,68 @@ CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull reque
 | `DB_USER` / `DB_PASSWORD` | backend, db | `itsm` / `itsm`                     |
 | `CORS_ALLOWED_ORIGINS` | backend  | `http://localhost:4321`                  |
 | `PORT`                 | backend  | `8080`                                   |
+| `JWT_SECRET`           | backend  | none for `bootRun` (required, ≥ 32 bytes); a dev value in docker compose |
+| `JWT_TTL`              | backend  | `8h`                                     |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | backend | none for `bootRun`; `admin@itsm.local` / `ChangeMe123!` in docker compose |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
 | `DB_PORT`, `BACKEND_PORT`, `FRONTEND_PORT` | docker compose | `5432`, `8080`, `4321` |
 
+## Authentication
+
+Stateless JWT (HS256). Log in to get a token, then send it as `Authorization: Bearer <token>`.
+In Swagger UI, click **Authorize** and paste the token.
+
+| Endpoint | Access | Notes |
+|---|---|---|
+| `POST /api/auth/register` | public | Always creates an **Employee** |
+| `POST /api/auth/login` | public | Returns `{ token, tokenType, expiresAt, user }` |
+| `GET /api/auth/me` | logged in | Current user's profile |
+| `POST /api/auth/change-password` | logged in | `{ currentPassword, newPassword }` |
+| `GET /api/admin/users?role=&active=&q=&page=&size=` | admin | Paged, filtered user list |
+| `POST /api/admin/users` | admin | Create an Employee, Technician or Admin |
+| `PATCH /api/admin/users/{id}` | admin | Partial update, activate or deactivate |
+| `POST /api/admin/users/{id}/reset-password` | admin | `{ newPassword }` |
+
+```sh
+TOKEN=$(curl -s localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@itsm.local","password":"ChangeMe123!"}' | jq -r .token)
+curl -s localhost:8080/api/auth/me -H "Authorization: Bearer $TOKEN"
+```
+
+**In your own module**, inject `CurrentUser` to find out who is calling:
+
+```kotlin
+@Service
+class IncidentService(private val currentUser: CurrentUser) {
+    fun mine(): List<IncidentResponse> {
+        val me = currentUser.get()          // AuthenticatedUser(id, email, role); 401 if not logged in
+        if (me.role != Role.EMPLOYEE) throw UnauthorizedOperationException("Only employees have reported incidents")
+        // ...
+    }
+}
+```
+
+- URL rules live in `SecurityConfig`: `/api/admin/**` is admin-only; everything else needs a token.
+- For per-endpoint role rules, use `@PreAuthorize("hasRole('TECHNICIAN')")` (roles: `EMPLOYEE`, `TECHNICIAN`, `ADMIN`).
+- Ownership checks (for example "only the reporter can view this incident") belong in your service code:
+  throw `UnauthorizedOperationException` (403).
+- Errors are `application/problem+json`: 401 when the token is missing, invalid or expired; 403 when the role is wrong.
+- **Known limitation:** tokens are not stored anywhere, so a deactivated user's token keeps working
+  until it expires (`JWT_TTL`, 8 h by default). They can't log in again.
+
 ## Conventions
 
-- **Schema changes** go in a new Flyway file `backend/src/main/resources/db/migration/V<n>__<description>.sql`.
-  Never edit a migration after it has been merged. Hibernate runs with `ddl-auto: validate`,
+- **Schema changes** go in a new Flyway file `backend/src/main/resources/db/migration/V<yyyymmdd_hhmm>__<description>.sql`
+  (timestamps, so five people don't create two `V3`s). Never edit a migration after it has been merged. Hibernate runs with `ddl-auto: validate`,
   so entities must match the migrations.
 - **Errors**: domain exceptions extend `ItsmException` (with an HTTP status).
   `GlobalExceptionHandler` turns them into RFC 9457 `application/problem+json` responses.
-- **Security**: `SecurityConfig` currently allows all `/api/**` requests. Authentication
-  (e.g. JWT) and role rules for Employee / Technician / Admin still need to be added.
+- **Security**: see [Authentication](#authentication).
 
 ## Troubleshooting
+
+- **Backend fails with "JWT secret is missing or too short"**: set `JWT_SECRET` to at least
+  32 characters (see step 3 above).
 
 - **Gradle wrapper download times out**: `services.gradle.org` can be slow. The wrapper
   timeout is set to 120 s with 3 retries in `backend/gradle/wrapper/gradle-wrapper.properties`.

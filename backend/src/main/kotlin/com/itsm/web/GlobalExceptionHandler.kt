@@ -3,6 +3,8 @@ package com.itsm.web
 import com.itsm.common.exception.ItsmException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
+import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.security.access.AccessDeniedException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
@@ -23,4 +25,22 @@ class GlobalExceptionHandler {
             title = "ValidationError"
             setProperty("errors", ex.bindingResult.fieldErrors.associate { it.field to (it.defaultMessage ?: "invalid") })
         }
+
+    @ExceptionHandler(HttpMessageNotReadableException::class)
+    fun handleUnreadable(ex: HttpMessageNotReadableException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Malformed or unreadable request body").apply {
+            title = "Bad Request"
+        }
+
+    /** Domain invariants are enforced with require(), which throws IllegalArgumentException: treat as bad input. */
+    @ExceptionHandler(IllegalArgumentException::class)
+    fun handleIllegalArgument(ex: IllegalArgumentException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.message ?: "Invalid request").apply {
+            title = "Bad Request"
+        }
+
+    /** Covers @PreAuthorize denials (AuthorizationDeniedException is a subclass). */
+    @ExceptionHandler(AccessDeniedException::class)
+    fun handleAccessDenied(ex: AccessDeniedException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Access denied").apply { title = "Forbidden" }
 }

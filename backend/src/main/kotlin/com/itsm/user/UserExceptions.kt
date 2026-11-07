@@ -11,3 +11,7 @@ class UserNotFoundException(message: String) : ItsmException(message, HttpStatus
 
 class EmailAlreadyRegisteredException(email: String) :
     ItsmException("Email '$email' is already registered", HttpStatus.CONFLICT)
+
+class CannotDeactivateSelfException : ItsmException("Administrators cannot deactivate their own account", HttpStatus.BAD_REQUEST)
+
+class InvalidUserUpdateException(message: String) : ItsmException(message, HttpStatus.BAD_REQUEST)
