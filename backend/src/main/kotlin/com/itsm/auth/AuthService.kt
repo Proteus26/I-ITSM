@@ -7,9 +7,9 @@ import com.itsm.user.UserNotFoundException
 import com.itsm.user.UserRepository
 import com.itsm.user.UserResponse
 import com.itsm.user.normalizeEmail
+import com.itsm.user.translatingEmailConflict
 import com.itsm.user.toResponse
 import org.springframework.context.ApplicationEventPublisher
-import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -26,21 +26,17 @@ class AuthService(
     private val clock: Clock,
 ) {
     // Matched against when the email is unknown so both failure paths cost about the same.
-    private val dummyHash: String by lazy { passwordEncoder.encode("dummy-password-for-timing")!! }
+    private val dummyHash: String = passwordEncoder.encode("dummy-password-for-timing")!!
 
     @Transactional
     fun register(request: RegisterRequest): User {
         val email = normalizeEmail(request.email)
         if (users.existsByEmail(email)) throw EmailAlreadyRegisteredException(email)
         val employee = userFactory.createEmployee(email, request.fullName, request.password, request.department)
-        try {
-            return users.saveAndFlush(employee)
-        } catch (_: DataIntegrityViolationException) {
-            throw EmailAlreadyRegisteredException(email)
-        }
+        return translatingEmailConflict({ employee.email }) { users.saveAndFlush(employee) }
     }
 
-    @Transactional(readOnly = true)
+    /** Deliberately not transactional: failure events must be published without a rollback-only transaction. */
     fun login(request: LoginRequest): LoginResponse {
         val email = normalizeEmail(request.email)
         val user = users.findByEmail(email)

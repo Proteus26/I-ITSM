@@ -10,6 +10,9 @@ spring:
     hibernate:
       # Schema is owned by Flyway migrations (src/main/resources/db/migration).
       ddl-auto: validate
+    properties:
+      hibernate:
+        default_batch_fetch_size: 50
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -17,7 +20,7 @@ spring:
 server:
   port: ${PORT:8080}
   error:
-    include-message: always
+    include-message: never
 
 app:
   auth:

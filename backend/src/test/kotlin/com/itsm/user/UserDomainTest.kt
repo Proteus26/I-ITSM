@@ -1,5 +1,6 @@
 package com.itsm.user
 
+import com.itsm.common.exception.DomainValidationException
 import org.springframework.security.crypto.factory.PasswordEncoderFactories
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,18 +33,18 @@ class UserDomainTest {
 
     @Test
     fun `blank email is rejected on construction and change`() {
-        assertFailsWith<IllegalArgumentException> { Employee("   ", "Alice", "hash") }
-        assertFailsWith<IllegalArgumentException> { Employee("", "Alice", "hash") }
+        assertFailsWith<DomainValidationException> { Employee("   ", "Alice", "hash") }
+        assertFailsWith<DomainValidationException> { Employee("", "Alice", "hash") }
         val user = employee()
-        assertFailsWith<IllegalArgumentException> { user.changeEmail(" ") }
+        assertFailsWith<DomainValidationException> { user.changeEmail(" ") }
         assertEquals("alice@example.com", user.email)
     }
 
     @Test
     fun `blank full name is rejected on construction and rename`() {
-        assertFailsWith<IllegalArgumentException> { Employee("a@b.com", "  ", "hash") }
+        assertFailsWith<DomainValidationException> { Employee("a@b.com", "  ", "hash") }
         val user = employee()
-        assertFailsWith<IllegalArgumentException> { user.rename("") }
+        assertFailsWith<DomainValidationException> { user.rename("") }
         assertEquals("Alice", user.fullName)
         user.rename("  Alice B  ")
         assertEquals("Alice B", user.fullName)
@@ -58,7 +59,7 @@ class UserDomainTest {
 
     @Test
     fun `factory rejects blank raw password`() {
-        assertFailsWith<IllegalArgumentException> { factory.createEmployee("a@b.com", "A", "  ") }
+        assertFailsWith<DomainValidationException> { factory.createEmployee("a@b.com", "A", "  ") }
     }
 
     @Test
@@ -96,7 +97,7 @@ class UserDomainTest {
     @Test
     fun `changePassword rejects blank new password and keeps the old one`() {
         val user = employee("old-pass")
-        assertFailsWith<IllegalArgumentException> { user.changePassword(encoder, "old-pass", " ") }
+        assertFailsWith<DomainValidationException> { user.changePassword(encoder, "old-pass", " ") }
         assertTrue(user.passwordMatches(encoder, "old-pass"))
     }
 
@@ -111,8 +112,8 @@ class UserDomainTest {
     @Test
     fun `resetPassword rejects blank new password`() {
         val user = employee("old-pass")
-        assertFailsWith<IllegalArgumentException> { user.resetPassword(encoder, "") }
-        assertFailsWith<IllegalArgumentException> { user.resetPassword(encoder, "   ") }
+        assertFailsWith<DomainValidationException> { user.resetPassword(encoder, "") }
+        assertFailsWith<DomainValidationException> { user.resetPassword(encoder, "   ") }
         assertTrue(user.passwordMatches(encoder, "old-pass"))
     }
 
@@ -197,18 +198,18 @@ class UserDomainTest {
     @Test
     fun `blank skill is rejected`() {
         val tech = Technician("t@x.com", "T", "h")
-        assertFailsWith<IllegalArgumentException> { tech.addSkill("  ") }
-        assertFailsWith<IllegalArgumentException> { tech.removeSkill("") }
-        assertFailsWith<IllegalArgumentException> { tech.hasSkill(" ") }
-        assertFailsWith<IllegalArgumentException> { Technician("t@x.com", "T", "h", skills = setOf("ok", " ")) }
+        assertFailsWith<DomainValidationException> { tech.addSkill("  ") }
+        assertFailsWith<DomainValidationException> { tech.removeSkill("") }
+        assertFailsWith<DomainValidationException> { tech.hasSkill(" ") }
+        assertFailsWith<DomainValidationException> { Technician("t@x.com", "T", "h", skills = setOf("ok", " ")) }
     }
 
     @Test
     fun `capacity below one is rejected in constructor and changeCapacity`() {
-        assertFailsWith<IllegalArgumentException> { Technician("t@x.com", "T", "h", maxActiveIncidents = 0) }
-        assertFailsWith<IllegalArgumentException> { Technician("t@x.com", "T", "h", maxActiveIncidents = -3) }
+        assertFailsWith<DomainValidationException> { Technician("t@x.com", "T", "h", maxActiveIncidents = 0) }
+        assertFailsWith<DomainValidationException> { Technician("t@x.com", "T", "h", maxActiveIncidents = -3) }
         val tech = Technician("t@x.com", "T", "h", maxActiveIncidents = 2)
-        assertFailsWith<IllegalArgumentException> { tech.changeCapacity(0) }
+        assertFailsWith<DomainValidationException> { tech.changeCapacity(0) }
         assertEquals(2, tech.maxActiveIncidents)
         tech.changeCapacity(1)
         assertEquals(1, tech.maxActiveIncidents)
@@ -240,5 +241,40 @@ class UserDomainTest {
         assertEquals(before, a.hashCode())
         assertFalse(a.equals(null))
         assertFalse(a.equals("string"))
+    }
+
+    @Test
+    fun `replaceSkills swaps the whole set normalizing codes and is atomic on bad input`() {
+        val tech = Technician("t@x.com", "T", "h", skills = setOf("net", "vpn"))
+
+        tech.replaceSkills(setOf(" vpn ", "db"))
+        assertEquals(setOf("VPN", "DB"), tech.skills)
+
+        assertFailsWith<DomainValidationException> { tech.replaceSkills(setOf("ok", " ")) }
+        assertEquals(setOf("VPN", "DB"), tech.skills)
+
+        tech.replaceSkills(emptySet())
+        assertTrue(tech.skills.isEmpty())
+    }
+
+    @Test
+    fun `factory create applies the shared technician defaults and rejects inapplicable extras`() {
+        val tech = factory.create(Role.TECHNICIAN, "t@x.com", "T", "password1") as Technician
+        assertEquals(Technician.DEFAULT_LEVEL, tech.level)
+        assertEquals(Technician.DEFAULT_MAX_ACTIVE_INCIDENTS, tech.maxActiveIncidents)
+
+        assertFailsWith<DomainValidationException> { factory.create(Role.EMPLOYEE, "e@x.com", "E", "password1", level = TechnicianLevel.L2) }
+        assertFailsWith<DomainValidationException> { factory.create(Role.ADMIN, "a@x.com", "A", "password1", department = "IT") }
+    }
+
+    @Test
+    fun `over long passwords are rejected by the factory and resetPassword`() {
+        assertFailsWith<DomainValidationException> { factory.createEmployee("a@b.com", "A", "a".repeat(73)) }
+        assertFailsWith<DomainValidationException> { employee().resetPassword(encoder, "a".repeat(73)) }
+    }
+
+    @Test
+    fun `created at is truncated to microseconds`() {
+        assertEquals(0, employee().createdAt.nano % 1000)
     }
 }

@@ -1,7 +1,6 @@
 package com.itsm.user
 
 import com.itsm.auth.CurrentUser
-import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -36,28 +35,11 @@ class AdminUserService(
     fun create(request: CreateUserRequest): UserResponse {
         val email = normalizeEmail(request.email)
         if (users.existsByEmail(email)) throw EmailAlreadyRegisteredException(email)
-        val isTech = request.role == Role.TECHNICIAN
-        if (!isTech && (request.level != null || request.maxActiveIncidents != null || request.skills != null)) {
-            throw InvalidUserUpdateException("level, maxActiveIncidents and skills apply to technicians only")
-        }
-        if (request.role != Role.EMPLOYEE && request.department != null) {
-            throw InvalidUserUpdateException("department applies to employees only")
-        }
-        val user: User = when (request.role) {
-            Role.EMPLOYEE -> userFactory.createEmployee(email, request.fullName, request.password, request.department)
-            Role.TECHNICIAN -> userFactory.createTechnician(
-                email, request.fullName, request.password,
-                request.level ?: TechnicianLevel.L1,
-                request.maxActiveIncidents ?: 5,
-                request.skills ?: emptySet(),
-            )
-            Role.ADMIN -> userFactory.createAdministrator(email, request.fullName, request.password)
-        }
-        try {
-            return users.saveAndFlush(user).toResponse()
-        } catch (_: DataIntegrityViolationException) {
-            throw EmailAlreadyRegisteredException(email)
-        }
+        val user = userFactory.create(
+            request.role, email, request.fullName, request.password,
+            request.department, request.level, request.maxActiveIncidents, request.skills,
+        )
+        return translatingEmailConflict({ user.email }) { users.saveAndFlush(user).toResponse() }
     }
 
     /**
@@ -93,24 +75,14 @@ class AdminUserService(
             request.level?.let { user.changeLevel(it) }
             request.maxActiveIncidents?.let { user.changeCapacity(it) }
             request.available?.let { if (it) user.markAvailable() else user.markUnavailable() }
-            request.skills?.let { replaceSkills(user, it) }
+            request.skills?.let { user.replaceSkills(it) }
         }
-        try {
-            return users.saveAndFlush(user).toResponse()
-        } catch (_: DataIntegrityViolationException) {
-            throw EmailAlreadyRegisteredException(user.email)
-        }
+        return translatingEmailConflict({ user.email }) { users.saveAndFlush(user).toResponse() }
     }
 
     @Transactional
     fun resetPassword(id: Long, request: ResetPasswordRequest) {
         find(id).resetPassword(passwordEncoder, request.newPassword)
-    }
-
-    private fun replaceSkills(technician: Technician, skills: Set<String>) {
-        val wanted = skills.map { it.trim().uppercase() }.toSet()
-        technician.skills.filter { it !in wanted }.forEach(technician::removeSkill)
-        wanted.forEach(technician::addSkill)
     }
 
     private fun find(id: Long): User = users.findById(id).orElseThrow { UserNotFoundException(id) }

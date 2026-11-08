@@ -1,5 +1,6 @@
 package com.itsm.user
 
+import com.itsm.common.exception.domainRequire
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
 import jakarta.persistence.DiscriminatorType
@@ -12,6 +13,7 @@ import jakarta.persistence.InheritanceType
 import jakarta.persistence.Table
 import org.springframework.security.crypto.password.PasswordEncoder
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
  * Abstract base of all accounts (single-table inheritance). The password hash is
@@ -46,13 +48,21 @@ abstract class User(
         protected set
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    val createdAt: Instant = Instant.now()
+    // Truncated to the database precision so a POST response matches a later GET.
+    val createdAt: Instant = Instant.now().truncatedTo(ChronoUnit.MICROS)
 
     /** Computed by each subclass; has no backing field so it is not persisted (the discriminator stores it). */
     abstract val role: Role
 
-    fun passwordMatches(encoder: PasswordEncoder, raw: String): Boolean =
-        encoder.matches(raw, passwordHash)
+    /**
+     * Over-long input never matches (BCrypt would otherwise ignore everything past 72 bytes). It still costs
+     * one hash comparison, so response time does not reveal that the account exists.
+     */
+    fun passwordMatches(encoder: PasswordEncoder, raw: String): Boolean {
+        val overLimit = PasswordPolicy.exceedsByteLimit(raw)
+        val matched = encoder.matches(if (overLimit) OVER_LIMIT_PLACEHOLDER else raw, passwordHash)
+        return matched && !overLimit
+    }
 
     fun changePassword(encoder: PasswordEncoder, current: String, new: String) {
         if (!passwordMatches(encoder, current)) throw IncorrectPasswordException()
@@ -61,7 +71,7 @@ abstract class User(
 
     /** Admin reset: no current-password check. */
     fun resetPassword(encoder: PasswordEncoder, new: String) {
-        require(new.isNotBlank()) { "Password must not be blank" }
+        PasswordPolicy.requireUsable(new)
         passwordHash = encoder.encode(new)!!
     }
 
@@ -95,8 +105,10 @@ abstract class User(
 
     private companion object {
         fun requireNotBlank(value: String, name: String): String {
-            require(value.isNotBlank()) { "$name must not be blank" }
+            domainRequire(value.isNotBlank()) { "$name must not be blank" }
             return value.trim()
         }
+
+        const val OVER_LIMIT_PLACEHOLDER = "password-over-the-bcrypt-limit"
     }
 }

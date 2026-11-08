@@ -1,5 +1,6 @@
 package com.itsm.user
 
+import com.itsm.common.exception.domainRequire
 import jakarta.persistence.CollectionTable
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorValue
@@ -16,7 +17,7 @@ class Technician(
     email: String,
     fullName: String,
     passwordHash: String,
-    level: TechnicianLevel = TechnicianLevel.L1,
+    level: TechnicianLevel = DEFAULT_LEVEL,
     maxActiveIncidents: Int = DEFAULT_MAX_ACTIVE_INCIDENTS,
     skills: Set<String> = emptySet(),
 ) : User(email, fullName, passwordHash) {
@@ -49,6 +50,13 @@ class Technician(
 
     fun removeSkill(code: String): Boolean = skillCodes.remove(normalizeSkill(code))
 
+    /** Replaces all skills with [codes] (normalized like [addSkill]); nothing changes if any code is blank. */
+    fun replaceSkills(codes: Set<String>) {
+        val wanted = codes.mapTo(mutableSetOf(), ::normalizeSkill)
+        skillCodes.retainAll(wanted)
+        skillCodes.addAll(wanted)
+    }
+
     fun hasSkill(code: String): Boolean = normalizeSkill(code) in skillCodes
 
     fun markAvailable() {
@@ -67,17 +75,19 @@ class Technician(
         maxActiveIncidents = requireCapacity(max)
     }
 
-    private companion object {
+    companion object {
+        /** Defaults for a new technician; the single source for the factory and the admin API. */
+        val DEFAULT_LEVEL = TechnicianLevel.L1
         const val DEFAULT_MAX_ACTIVE_INCIDENTS = 5
 
-        fun requireCapacity(max: Int): Int {
-            require(max >= 1) { "maxActiveIncidents must be at least 1" }
+        private fun requireCapacity(max: Int): Int {
+            domainRequire(max >= 1) { "maxActiveIncidents must be at least 1" }
             return max
         }
 
-        fun normalizeSkill(code: String): String {
+        private fun normalizeSkill(code: String): String {
             val normalized = code.trim().uppercase()
-            require(normalized.isNotEmpty()) { "Skill code must not be blank" }
+            domainRequire(normalized.isNotEmpty()) { "Skill code must not be blank" }
             return normalized
         }
     }

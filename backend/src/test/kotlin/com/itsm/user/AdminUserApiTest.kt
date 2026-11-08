@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc
 import tools.jackson.databind.json.JsonMapper
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 @SpringBootTest
@@ -179,6 +180,31 @@ class AdminUserApiTest @Autowired constructor(
     }
 
     @Test
+    fun `list q treats underscore literally`() {
+        val tag = UUID.randomUUID().toString().take(8)
+        users.saveAndFlush(factory.createEmployee("under-$tag@example.com", "Under $tag", pw))
+
+        assertEquals(0, api.json(api.get("/api/admin/users?q=_", adminToken))["totalElements"].asLong())
+        // A literal underscore matches only where one really exists.
+        val withUnderscore = users.saveAndFlush(factory.createEmployee("snake_$tag@example.com", "Snake $tag", pw))
+        val found = api.json(api.get("/api/admin/users?q=snake_$tag", adminToken))
+        assertEquals(1, found["totalElements"].asLong())
+        assertEquals(withUnderscore.id, found["content"][0]["id"].asLong())
+    }
+
+    @Test
+    fun `list q treats backslash literally`() {
+        val tag = UUID.randomUUID().toString().take(8)
+        users.saveAndFlush(factory.createEmployee("back-$tag@example.com", "Back $tag", pw))
+
+        assertEquals(0, api.json(api.get("/api/admin/users?q=\\", adminToken))["totalElements"].asLong())
+        val withBackslash = users.saveAndFlush(factory.createEmployee("slash-$tag@example.com", "Back\\slash $tag", pw))
+        val found = api.json(api.get("/api/admin/users?q=\\slash $tag", adminToken))
+        assertEquals(1, found["totalElements"].asLong())
+        assertEquals(withBackslash.id, found["content"][0]["id"].asLong())
+    }
+
+    @Test
     fun `list with negative page and zero size is clamped rather than failing`() {
         val result = api.get("/api/admin/users?page=-5&size=0", adminToken)
 
@@ -254,12 +280,18 @@ class AdminUserApiTest @Autowired constructor(
     }
 
     @Test
-    fun `patch blank full name returns 400 not 500`() {
+    fun `patch blank full name or email returns the standard validation error with an errors map`() {
         val e = employee()
 
-        val result = api.patch("/api/admin/users/${e.id}", mapOf("fullName" to "   "), adminToken)
+        for (field in listOf("fullName", "email")) {
+            val result = api.patch("/api/admin/users/${e.id}", mapOf(field to "   "), adminToken)
 
-        assertEquals(400, result.response.status)
+            assertEquals(400, result.response.status)
+            assertProblemJson(result)
+            val body = api.json(result)
+            assertEquals("ValidationError", body["title"].asString())
+            assertNotNull(body["errors"][field], body.toString())
+        }
     }
 
     @Test
@@ -309,15 +341,13 @@ class AdminUserApiTest @Autowired constructor(
     }
 
     @Test
-    fun `deactivated user with a still valid token keeps access until expiry`() {
-        // Documents current behaviour: tokens are stateless, so deactivation is not enforced per request.
+    fun `deactivated user with a still valid token gets 401 immediately`() {
         val e = employee()
         val token = api.token(e.email, pw)
+        assertEquals(200, api.get("/api/auth/me", token).response.status)
         api.patch("/api/admin/users/${e.id}", mapOf("active" to false), adminToken)
 
-        val status = api.get("/api/auth/me", token).response.status
-
-        assertTrue(status == 200 || status == 401 || status == 403, "unexpected status $status")
+        assertEquals(401, api.get("/api/auth/me", token).response.status)
     }
 
     @Test
@@ -353,7 +383,74 @@ class AdminUserApiTest @Autowired constructor(
     }
 
     @Test
-    fun `get with a non numeric id returns 400`() {
-        assertEquals(400, api.get("/api/admin/users/abc", adminToken).response.status)
+    fun `bad request parameters and path variables return 400 problem json`() {
+        for (url in listOf("/api/admin/users?role=FOO", "/api/admin/users?active=maybe", "/api/admin/users/abc", "/api/admin/users?page=x")) {
+            val result = api.get(url, adminToken)
+            assertEquals(400, result.response.status, url)
+            assertProblemJson(result)
+        }
+    }
+
+    @Test
+    fun `missing required request parameter returns 400 problem json`() {
+        // Handler-level check: no admin endpoint has a required parameter yet, so invoke the handler directly.
+        val problem = com.itsm.web.GlobalExceptionHandler()
+            .handleMissingParameter(org.springframework.web.bind.MissingServletRequestParameterException("q", "String"))
+        assertEquals(400, problem.status)
+        assertTrue(problem.detail!!.contains("'q'"))
+    }
+
+    @Test
+    fun `domain validation failures are 400 not 500`() {
+        val e = employee()
+        // A whitespace-only skill code is rejected (400) rather than reaching the database.
+        val t = technician()
+        val result = api.patch("/api/admin/users/${t.id}", mapOf("skills" to listOf("  ")), adminToken)
+        assertEquals(400, result.response.status)
+        assertProblemJson(result)
+        assertEquals(200, api.get("/api/admin/users/${e.id}", adminToken).response.status)
+    }
+
+    @Test
+    fun `create with over long or blank skills or too many skills returns 400 with errors`() {
+        val bodies = listOf(
+            listOf("x".repeat(256)),
+            listOf(" "),
+            (1..21).map { "S$it" },
+        )
+        for (skills in bodies) {
+            val result = api.post("/api/admin/users", createBody("TECHNICIAN", api.uniqueEmail(), mapOf("skills" to skills)), adminToken)
+            assertEquals(400, result.response.status, skills.toString())
+            assertEquals("ValidationError", api.json(result)["title"].asString())
+        }
+        val t = technician()
+        val patch = api.patch("/api/admin/users/${t.id}", mapOf("skills" to listOf("x".repeat(256))), adminToken)
+        assertEquals(400, patch.response.status)
+        assertEquals("ValidationError", api.json(patch)["title"].asString())
+    }
+
+    @Test
+    fun `create and reset with a password over 72 bytes return 400 with field errors`() {
+        val create = api.post("/api/admin/users", createBody("EMPLOYEE", api.uniqueEmail(), mapOf("password" to "a".repeat(73))), adminToken)
+        assertEquals(400, create.response.status)
+        assertNotNull(api.json(create)["errors"]["password"])
+
+        val e = employee()
+        val reset = api.post("/api/admin/users/${e.id}/reset-password", mapOf("newPassword" to "é".repeat(37)), adminToken)
+        assertEquals(400, reset.response.status)
+        assertNotNull(api.json(reset)["errors"]["newPassword"])
+    }
+
+    @Test
+    fun `created at in the post response equals the later get`() {
+        val created = api.json(api.post("/api/admin/users", createBody("EMPLOYEE", api.uniqueEmail()), adminToken))
+        val fetched = api.json(api.get("/api/admin/users/${created["id"].asLong()}", adminToken))
+
+        assertEquals(created["createdAt"].asString(), fetched["createdAt"].asString())
+    }
+
+    private fun assertProblemJson(result: org.springframework.test.web.servlet.MvcResult) {
+        val type = result.response.contentType
+        assertTrue(type != null && type.startsWith("application/problem+json"), "content type was $type")
     }
 }

@@ -151,9 +151,13 @@ In Swagger UI, click **Authorize** and paste the token.
 | `GET /api/auth/me` | logged in | Current user's profile |
 | `POST /api/auth/change-password` | logged in | `{ currentPassword, newPassword }` |
 | `GET /api/admin/users?role=&active=&q=&page=&size=` | admin | Paged, filtered user list |
+| `GET /api/admin/users/{id}` | admin | One user |
 | `POST /api/admin/users` | admin | Create an Employee, Technician or Admin |
 | `PATCH /api/admin/users/{id}` | admin | Partial update, activate or deactivate |
 | `POST /api/admin/users/{id}/reset-password` | admin | `{ newPassword }` |
+
+New passwords (register, change, admin create and reset, and `ADMIN_PASSWORD`) must be 8 to 72 characters
+and at most 72 bytes in UTF-8 (a BCrypt limit; non-ASCII characters take more than one byte).
 
 ```sh
 TOKEN=$(curl -s localhost:8080/api/auth/login -H 'Content-Type: application/json' \
@@ -182,6 +186,10 @@ class IncidentService(private val currentUser: CurrentUser) {
 - Every authenticated request loads the user from the database, so deactivating or deleting an account
   takes effect immediately (its existing tokens get 401), and `CurrentUser` always returns the current
   email and role, not the values stored in the token.
+- Login publishes `LoginFailed` and `UserLoggedIn` events (package `com.itsm.auth`); consume them with a
+  plain `@EventListener` (register publishes no event; login runs outside a transaction, so `@TransactionalEventListener` never fires).
+- Known limitation: changing or resetting a password does not revoke existing tokens; they stay valid until
+  `JWT_TTL` elapses. Deactivating or deleting an account does revoke them immediately.
 
 ## Conventions
 
@@ -195,7 +203,7 @@ class IncidentService(private val currentUser: CurrentUser) {
 ## Troubleshooting
 
 - **Backend fails with "JWT secret is missing or too short"**: set `JWT_SECRET` to at least
-  32 characters (see step 3 above).
+  32 bytes (see step 3 above).
 
 - **Gradle wrapper download times out**: `services.gradle.org` can be slow. The wrapper
   timeout is set to 120 s with 3 retries in `backend/gradle/wrapper/gradle-wrapper.properties`.

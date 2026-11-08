@@ -306,4 +306,70 @@ class AuthApiTest @Autowired constructor(
         assertEquals(renamed, auth.user.email)
         assertEquals(listOf("ROLE_EMPLOYEE"), auth.authorities.map { it.authority })
     }
+
+    private val tooLongPassword = "a".repeat(73)
+
+    @Test
+    fun `register with a password over 72 bytes returns 400 with a field error`() {
+        for (password in listOf(tooLongPassword, "é".repeat(37))) {
+            val result = api.register(api.uniqueEmail(), password)
+
+            assertEquals(400, result.response.status)
+            assertEquals("ValidationError", api.json(result)["title"].asString())
+            assertNotNull(api.json(result)["errors"]["password"])
+        }
+    }
+
+    @Test
+    fun `register with a 72 byte password works and the user can log in`() {
+        val email = api.uniqueEmail()
+        val password = "a".repeat(72)
+        assertEquals(201, api.register(email, password).response.status)
+        assertEquals(200, api.login(email, password).response.status)
+    }
+
+    @Test
+    fun `login with an over long password is a plain 401 even when it extends the real one`() {
+        val email = api.uniqueEmail()
+        api.register(email, "a".repeat(72))
+
+        for (attempt in listOf(tooLongPassword, "a".repeat(500))) {
+            val result = api.login(email, attempt)
+            assertEquals(401, result.response.status)
+            assertEquals("Invalid email or password", api.json(result)["detail"].asString())
+        }
+        assertEquals(401, api.login(api.uniqueEmail(), "a".repeat(500)).response.status)
+    }
+
+    @Test
+    fun `change password with an over long current password is the normal incorrect password error`() {
+        val email = api.uniqueEmail()
+        api.register(email, "a".repeat(72))
+        val token = api.token(email, "a".repeat(72))
+
+        val result = api.post(
+            "/api/auth/change-password",
+            mapOf("currentPassword" to tooLongPassword, "newPassword" to "brandnew123"),
+            token,
+        )
+
+        assertEquals(400, result.response.status)
+        assertEquals("Current password is incorrect", api.json(result)["detail"].asString())
+    }
+
+    @Test
+    fun `change password with an over long new password returns 400 with a field error`() {
+        val email = api.uniqueEmail()
+        api.register(email)
+        val token = api.token(email, "password123")
+
+        val result = api.post(
+            "/api/auth/change-password",
+            mapOf("currentPassword" to "password123", "newPassword" to tooLongPassword),
+            token,
+        )
+
+        assertEquals(400, result.response.status)
+        assertNotNull(api.json(result)["errors"]["newPassword"])
+    }
 }
