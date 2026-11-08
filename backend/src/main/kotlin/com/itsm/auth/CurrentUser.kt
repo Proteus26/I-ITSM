@@ -6,8 +6,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.stereotype.Component
 
 /**
- * The caller as described by the validated JWT (no database access).
- * [email] may be stale if an admin changed it after the token was issued: use [id] for lookups and ownership checks.
+ * The authenticated caller. [email] and [role] are the current database values, loaded once per request
+ * by [UserJwtAuthenticationConverter]; deactivated or deleted users never get this far (401).
  */
 data class AuthenticatedUser(val id: Long, val email: String, val role: Role)
 
@@ -27,7 +27,10 @@ class CurrentUser {
     fun get(): AuthenticatedUser = getOrNull() ?: throw UnauthenticatedException()
 
     fun getOrNull(): AuthenticatedUser? {
-        val auth = SecurityContextHolder.getContext().authentication as? JwtAuthenticationToken ?: return null
+        val auth = SecurityContextHolder.getContext().authentication
+        if (auth is UserAuthenticationToken) return auth.user
+        // Fallback for tokens built without the converter, e.g. spring-security-test's jwt() in a test.
+        if (auth !is JwtAuthenticationToken) return null
         val jwt = auth.token
         val id = jwt.subject?.toLongOrNull() ?: return null
         val email = jwt.getClaimAsString("email") ?: return null

@@ -179,8 +179,9 @@ class IncidentService(private val currentUser: CurrentUser) {
 - Ownership checks (for example "only the reporter can view this incident") belong in your service code:
   throw `UnauthorizedOperationException` (403).
 - Errors are `application/problem+json`: 401 when the token is missing, invalid or expired; 403 when the role is wrong.
-- **Known limitation:** tokens are not stored anywhere, so a deactivated user's token keeps working
-  until it expires (`JWT_TTL`, 8 h by default). They can't log in again.
+- Every authenticated request loads the user from the database, so deactivating or deleting an account
+  takes effect immediately (its existing tokens get 401), and `CurrentUser` always returns the current
+  email and role, not the values stored in the token.
 
 ## Conventions
 

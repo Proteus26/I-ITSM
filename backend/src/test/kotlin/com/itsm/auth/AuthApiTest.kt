@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
+import org.springframework.security.oauth2.jwt.JwtDecoder
 import org.springframework.test.web.servlet.MockMvc
 import tools.jackson.databind.json.JsonMapper
 import kotlin.test.assertEquals
@@ -24,6 +25,8 @@ class AuthApiTest @Autowired constructor(
     mvc: MockMvc,
     mapper: JsonMapper,
     private val users: UserRepository,
+    private val jwtDecoder: JwtDecoder,
+    private val jwtConverter: UserJwtAuthenticationConverter,
 ) {
     private val api = ApiClient(mvc, mapper)
 
@@ -260,5 +263,47 @@ class AuthApiTest @Autowired constructor(
     @Test
     fun `unknown protected path without token returns 401 not 404`() {
         assertEquals(401, api.get("/api/does-not-exist").response.status)
+    }
+
+    @Test
+    fun `an existing token stops working as soon as the user is deactivated and works again after reactivation`() {
+        val email = api.uniqueEmail()
+        api.register(email)
+        val token = api.token(email, "password123")
+        assertEquals(200, api.get("/api/auth/me", token).response.status)
+
+        users.saveAndFlush(users.findByEmail(email)!!.also { it.deactivate() })
+        val rejected = api.get("/api/auth/me", token)
+        assertEquals(401, rejected.response.status)
+        assertTrue(rejected.response.contentType!!.startsWith("application/problem+json"))
+
+        users.saveAndFlush(users.findByEmail(email)!!.also { it.activate() })
+        assertEquals(200, api.get("/api/auth/me", token).response.status)
+    }
+
+    @Test
+    fun `a token for a deleted user is rejected`() {
+        val email = api.uniqueEmail()
+        api.register(email)
+        val token = api.token(email, "password123")
+
+        users.delete(users.findByEmail(email)!!)
+        users.flush()
+
+        assertEquals(401, api.get("/api/auth/me", token).response.status)
+    }
+
+    @Test
+    fun `the authenticated user carries the current database email, not the one in the token`() {
+        val email = api.uniqueEmail()
+        api.register(email)
+        val token = api.token(email, "password123")
+        val renamed = api.uniqueEmail("renamed")
+        users.saveAndFlush(users.findByEmail(email)!!.also { it.changeEmail(renamed) })
+
+        val auth = jwtConverter.convert(jwtDecoder.decode(token)) as UserAuthenticationToken
+
+        assertEquals(renamed, auth.user.email)
+        assertEquals(listOf("ROLE_EMPLOYEE"), auth.authorities.map { it.authority })
     }
 }

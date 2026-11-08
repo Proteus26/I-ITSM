@@ -1,6 +1,7 @@
 package com.itsm.config
 
 import com.itsm.auth.AuthProperties
+import com.itsm.auth.UserJwtAuthenticationConverter
 import com.nimbusds.jose.jwk.source.ImmutableSecret
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -9,21 +10,17 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
-import org.springframework.security.authentication.AbstractAuthenticationToken
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
-import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.crypto.factory.PasswordEncoderFactories
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm
-import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.security.oauth2.jwt.JwtDecoder
 import org.springframework.security.oauth2.jwt.JwtEncoder
 import org.springframework.security.oauth2.jwt.JwtValidators
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import org.springframework.security.web.AuthenticationEntryPoint
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.access.AccessDeniedHandler
@@ -49,6 +46,7 @@ class SecurityConfig(
         http: HttpSecurity,
         entryPoint: AuthenticationEntryPoint,
         deniedHandler: AccessDeniedHandler,
+        jwtConverter: UserJwtAuthenticationConverter,
     ): SecurityFilterChain {
         http
             // CSRF protects cookie-based sessions; we use stateless bearer tokens, so it is not needed.
@@ -64,7 +62,7 @@ class SecurityConfig(
                 it.anyRequest().authenticated()
             }
             .oauth2ResourceServer { rs ->
-                rs.jwt { it.jwtAuthenticationConverter(::convert) }
+                rs.jwt { it.jwtAuthenticationConverter(jwtConverter) }
                 rs.authenticationEntryPoint(entryPoint)
                 rs.accessDeniedHandler(deniedHandler)
             }
@@ -73,12 +71,6 @@ class SecurityConfig(
                 it.accessDeniedHandler(deniedHandler)
             }
         return http.build()
-    }
-
-    /** Maps the single role claim to one ROLE_ authority; sub becomes the principal name. */
-    private fun convert(jwt: Jwt): AbstractAuthenticationToken {
-        val authorities = jwt.getClaimAsString("role")?.let { listOf(SimpleGrantedAuthority("ROLE_$it")) } ?: emptyList()
-        return JwtAuthenticationToken(jwt, authorities, jwt.subject)
     }
 
     @Bean
