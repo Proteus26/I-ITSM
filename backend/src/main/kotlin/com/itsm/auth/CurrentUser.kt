@@ -5,7 +5,10 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import org.springframework.stereotype.Component
 
-/** The caller as described by the validated JWT (no database access). */
+/**
+ * The caller as described by the validated JWT (no database access).
+ * [email] may be stale if an admin changed it after the token was issued: use [id] for lookups and ownership checks.
+ */
 data class AuthenticatedUser(val id: Long, val email: String, val role: Role)
 
 /**

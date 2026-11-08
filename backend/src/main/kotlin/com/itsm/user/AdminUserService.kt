@@ -98,7 +98,7 @@ class AdminUserService(
         try {
             return users.saveAndFlush(user).toResponse()
         } catch (_: DataIntegrityViolationException) {
-            throw EmailAlreadyRegisteredException(request.email ?: user.email)
+            throw EmailAlreadyRegisteredException(user.email)
         }
     }
 
