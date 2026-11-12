@@ -26,7 +26,14 @@ describe('handleLoadError', () => {
     const { c, deleted } = ctx();
     const r = (await handleLoadError(err(401), c)) as Response;
     expect(deleted).toEqual(['itsm_session']);
-    expect(r.headers.get('location')).toBe('/login?next=%2Fadmin%2Fusers%2F3%3Fx%3D1');
+    expect(r.headers.get('location')).toBe('/login?next=%2Fadmin%2Fusers%2F3%3Fx%3D1&expired=1');
+  });
+  it('a 401 from a POST handler (form submission) also clears the cookie and goes to login', async () => {
+    const { c, deleted } = ctx();
+    const r = (await handleLoadError(err(401), c, { inlineServerErrors: true })) as Response;
+    expect(deleted).toEqual(['itsm_session']);
+    expect(r.status).toBe(302);
+    expect(r.headers.get('location')).toContain('expired=1');
   });
   it('5xx and unreachable -> /503', async () => {
     expect(await ((await handleLoadError(err(500), ctx().c)) as Response).text()).toBe('/503');

@@ -67,7 +67,7 @@ export function confirmMismatch(password: string, confirm: string): string | und
 
 export function formatDate(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 10);
+  return Number.isNaN(d.getTime()) ? iso : DATE_ONLY.format(d);
 }
 
 /** "true" / "false" (as sent by a hidden form field) -> boolean; anything else -> undefined. */
@@ -80,12 +80,18 @@ export function pluralize(count: number, singular: string, plural: string = `${s
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+const DATE_ONLY = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });
 const DATE_TIME = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
 
 /** "12 Nov 2026, 21:46 UTC"; the input itself when it is not a valid date. */
 export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : `${DATE_TIME.format(d)} UTC`;
+}
+
+/** "12 Nov 2026, 21:46 UTC", or "Never" when there was no login. */
+export function formatLogin(iso: string | null | undefined): string {
+  return iso ? formatDateTime(iso) : 'Never';
 }
 
 export function roleLabel(role: Role): string {

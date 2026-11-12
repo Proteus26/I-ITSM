@@ -22,8 +22,9 @@ const { user, backendDown } = Astro.locals;
     <a class="skip-link" href="#main">Skip to main content</a>
     <Nav user={user} />
     <main id="main" tabindex="-1">
-      {backendDown && <Alert kind="warning">The server could not be reached, so your sign-in status could not be checked.</Alert>}
+      {backendDown && <Alert kind="warning">The server could not be reached, so your login status could not be checked.</Alert>}
       <slot />
     </main>
+    <script is:inline src="/scripts/confirm.js" defer></script>
   </body>
 </html>

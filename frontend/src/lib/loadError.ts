@@ -21,7 +21,7 @@ export interface LoadErrorContext {
  *     message = r.userMessage;               // anything else: show it on the page
  *   }
  *
- * 404 -> /404, 401 -> end the session and go to /login?next=..., 403 -> /403,
+ * 404 -> /404, 401 -> end the session and go to /login?next=...&expired=1, 403 -> /403,
  * 5xx or unreachable -> /503 (or returned for inline display with `inlineServerErrors`, for form
  * submissions that must keep the form), anything else -> the ApiError itself. Non-ApiErrors are rethrown.
  */
@@ -34,7 +34,7 @@ export async function handleLoadError(
   if (e.status === 404) return ctx.rewrite('/404');
   if (e.status === 401) {
     endSession(ctx.cookies);
-    return ctx.redirect(loginUrl(ctx.url.pathname + ctx.url.search));
+    return ctx.redirect(loginUrl(ctx.url.pathname + ctx.url.search, { expired: true }));
   }
   if (e.status === 403) return ctx.rewrite('/403');
   if (e.isServerError && !options.inlineServerErrors) return ctx.rewrite('/503');

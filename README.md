@@ -143,6 +143,7 @@ CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull reque
 | `PORT`                 | backend  | `8080`                                   |
 | `JWT_SECRET`           | backend  | none for `bootRun` (required, ≥ 32 bytes); a dev value in docker compose |
 | `JWT_TTL`              | backend  | `8h`                                     |
+| `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW` | backend | `5` / `15m` (failed logins per email before 429) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | backend | none for `bootRun`; `admin@itsm.local` / `ChangeMe123!` in docker compose |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
 | `BACKEND_TIMEOUT_MS`   | frontend | `5000`; how long a page waits for the backend before treating it as unreachable |
@@ -157,9 +158,11 @@ In Swagger UI, click **Authorize** and paste the token.
 | Endpoint | Access | Notes |
 |---|---|---|
 | `POST /api/auth/register` | public | Always creates an **Employee** |
-| `POST /api/auth/login` | public | Returns `{ token, tokenType, expiresAt, user }` |
-| `GET /api/auth/me` | logged in | Current user's profile |
-| `POST /api/auth/change-password` | logged in | `{ currentPassword, newPassword }` |
+| `POST /api/auth/login` | public | `email` is limited to 255 characters (400 otherwise). Returns `{ token, tokenType, expiresAt, user }`; 429 with `Retry-After` after too many failures (see below) |
+| `GET /api/auth/me` | logged in | Current user's profile (includes `lastLoginAt` and `previousLoginAt`; both null before the first login, `previousLoginAt` null until the second) |
+| `PATCH /api/auth/me` | logged in | `{ fullName?, department? }`, null or omitted = unchanged; `department` is for employees only (400 otherwise). Returns the user. Email and role cannot be changed here; other fields in the body are ignored, not rejected |
+| `POST /api/auth/change-password` | logged in | `{ currentPassword, newPassword }`. Returns **200** with a new login response `{ token, tokenType, expiresAt, user }`; all older tokens stop working, so the client must switch to the new token |
+| `POST /api/auth/logout-all` | logged in | Logs out everywhere: revokes every token of the caller, including this one (204) |
 | `GET /api/admin/users?role=&active=&q=&page=&size=` | admin | Paged, filtered user list |
 | `GET /api/admin/users/{id}` | admin | One user |
 | `POST /api/admin/users` | admin | Create an Employee, Technician or Admin |
@@ -198,8 +201,31 @@ class IncidentService(private val currentUser: CurrentUser) {
   email and role, not the values stored in the token.
 - Login publishes `LoginFailed` and `UserLoggedIn` events (package `com.itsm.auth`); consume them with a
   plain `@EventListener` (register publishes no event; login runs outside a transaction, so `@TransactionalEventListener` never fires).
-- Known limitation: changing or resetting a password does not revoke existing tokens; they stay valid until
-  `JWT_TTL` elapses. Deactivating or deleting an account does revoke them immediately.
+- **Session revocation**: every user has a `token_version`, and each token carries it in the `ver` claim (a token
+  without `ver` counts as version 0; a `ver` that is not a non-negative integer is rejected with 401). A token whose
+  version differs from the database gets 401. The version is bumped by a password change, an admin password reset,
+  deactivation (so reactivating does not bring old tokens back) and `POST /api/auth/logout-all`. The bump is one atomic
+  SQL increment (`SessionRevoker.revoke(userId)`, which returns the new version), so concurrent revocations cannot lose
+  an update and the entity never writes the column. Changing your own password keeps your current session alive by
+  returning a token that carries the version produced by that same increment. Users deactivated before the migration
+  start at version 1, so their old tokens stay dead after reactivation.
+- **Login throttling**: every login attempt for an email is counted up front (atomically, so parallel requests cannot
+  all slip through). After 5 attempts that did not end in a success (`LOGIN_MAX_ATTEMPTS`), further logins for that email get
+  429 (`application/problem+json`) with a `Retry-After` header in seconds, even with the right password, until
+  `LOGIN_WINDOW` (default 15 minutes) has passed since the limit was reached. If the limit is not reached, counting restarts
+  after one window. The check runs before password hashing, and unknown emails are counted the same way, so it does not
+  reveal whether an account exists. A successful login clears the counter. Attempts on a disabled account (403) count too and are never cleared, so reactivating the account within
+  the window still gives 429 until the lock expires. `AuthService` calls `LoginAttemptTracker`
+  directly; the `LoginFailed` and `UserLoggedIn` events remain for other observers.
+  Limitations: the counters are in memory and per backend instance (not shared, reset on restart), and because the lock
+  is per email, anyone can lock a known email out of logging in for one window by failing on purpose. Memory is bounded
+  at 10,000 tracked emails and the throttle never fails open: when the map is full, expired entries are swept (at most
+  once per second) and then the least recently used entry is evicted, so a new email is always tracked; an attacker
+  sending more than 10,000 distinct emails within a window can push older counters out. Tokens that were already issued keep working.
+- **Last login**: `UserResponse.lastLoginAt` and `previousLoginAt` are set after each successful login (a `UserLoggedIn`
+  listener with its own transaction; the old last login becomes the previous one). Both are null until the first login
+  and `previousLoginAt` is null until the second. The login response shows the values as they are after that update.
+  A failure to record them is logged and never fails the login.
 
 ### Frontend authentication
 
@@ -211,6 +237,27 @@ class IncidentService(private val currentUser: CurrentUser) {
   A 401 deletes the cookie. If the backend is unreachable the visitor is treated as logged out and
   `Astro.locals.backendDown` is `true` (protected pages then show a 503 page instead of a redirect to login).
   `/api/**` requests skip this lookup; the proxy forwards the token and the backend enforces access.
+- **Session expiry**: when `/api/auth/me` answers 401 (token expired or revoked), the middleware clears the cookie.
+  A protected page redirects to `/login?next=<path>&expired=1` and the login page shows a fixed "Your session has ended"
+  notice; a public page just renders as logged out. `handleLoadError` does the same for a 401 from any later backend call.
+  The login page only shows fixed notices chosen by flag (`expired=1`, `loggedOut=all`, `registered=1`), never query text.
+  The account page does the same with `/account?notice=changed|profile` (shown after a redirect only, never after a failed post).
+- **Login throttling**: a 429 from `/api/auth/login` is shown as "Too many failed attempts. Try again in N minutes."
+  (from `Retry-After`, captured as `ApiError.retryAfterSeconds`; formatting in `src/lib/loginMessages.ts`: minutes, or hours beyond 120 minutes).
+- **Account page** (`/account`): three forms posting a hidden `intent` to the same page.
+  - *Edit profile* sends `PATCH /api/auth/me` (full name; department only for employees, blank clears it).
+  - *Change password* revokes the old token, so the page calls `startSession` with the new token from the response:
+    the cookie is replaced and the user stays logged in.
+  - *Log out of all devices* calls `POST /api/auth/logout-all`, clears the cookie and redirects to
+    `/login?loggedOut=all`. Plain "Log out" is per-device (it only clears this browser's cookie); log-out-all revokes every session.
+  - The form logic lives in `src/lib/accountForms.ts` and the `intent` dispatch in `src/lib/intent.ts` (also used by the
+    admin user page); errors appear on the card of the form that failed, other errors in a page-level alert.
+    Confirmation prompts use `data-confirm="..."` on a form, handled by `public/scripts/confirm.js` (no inline handlers;
+    without JavaScript the form simply submits; the button's own `data-confirm` wins over the form's, and repeated submits are
+    ignored for 3 seconds. A programmatic `form.submit()` fires no submit event and bypasses both).
+  - "Previous login" (`previousLoginAt`, or "This is your first login") is shown on the account page. Admins see "Last login"
+    (`lastLoginAt`, "Never" if none) in the users list (date, full time on hover) and the user detail page.
+    An admin password reset or deactivation also logs that user out.
 - **Protecting a new page**: add a rule to `ROUTE_RULES` in `src/lib/access.ts`. Paths that match no rule are public.
 
   ```ts

@@ -11,6 +11,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.Inheritance
 import jakarta.persistence.InheritanceType
 import jakarta.persistence.Table
+import org.hibernate.annotations.DynamicUpdate
 import org.springframework.security.crypto.password.PasswordEncoder
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -19,7 +20,9 @@ import java.time.temporal.ChronoUnit
  * Abstract base of all accounts (single-table inheritance). The password hash is
  * encapsulated: it can only be verified or replaced through the methods below.
  */
+// DynamicUpdate: only changed columns are written. (token_version is additionally never written by the entity.)
 @Entity
+@DynamicUpdate
 @Table(name = "users")
 @Inheritance(strategy = InheritanceType.SINGLE_TABLE)
 @DiscriminatorColumn(name = "role", discriminatorType = DiscriminatorType.STRING, length = 20)
@@ -51,6 +54,25 @@ abstract class User(
     // Truncated to the database precision so a POST response matches a later GET.
     val createdAt: Instant = Instant.now().truncatedTo(ChronoUnit.MICROS)
 
+    /**
+     * Read-only snapshot of the token version; tokens carry it in their "ver" claim. It is only changed by
+     * [com.itsm.auth.SessionRevoker] with an atomic SQL increment, so this value can be stale within a
+     * long-lived entity and is never written back.
+     */
+    @Column(name = "token_version", nullable = false, insertable = false, updatable = false)
+    final var tokenVersion: Int = 0
+        private set
+
+    /** Written only by a repository update when the user logs in, never through the entity. */
+    @Column(name = "last_login_at", insertable = false, updatable = false)
+    final var lastLoginAt: Instant? = null
+        private set
+
+    /** The login before [lastLoginAt]; null until the second login. Written only by the same repository update. */
+    @Column(name = "previous_login_at", insertable = false, updatable = false)
+    final var previousLoginAt: Instant? = null
+        private set
+
     /** Computed by each subclass; has no backing field so it is not persisted (the discriminator stores it). */
     abstract val role: Role
 
@@ -69,7 +91,7 @@ abstract class User(
         resetPassword(encoder, new)
     }
 
-    /** Admin reset: no current-password check. */
+    /** Admin reset: no current-password check. Callers must also revoke the user's sessions (SessionRevoker). */
     fun resetPassword(encoder: PasswordEncoder, new: String) {
         PasswordPolicy.requireUsable(new)
         passwordHash = encoder.encode(new)!!
@@ -79,6 +101,7 @@ abstract class User(
         active = true
     }
 
+    /** Callers must also revoke the user's sessions (SessionRevoker), so reactivating does not resurrect old tokens. */
     fun deactivate() {
         active = false
     }

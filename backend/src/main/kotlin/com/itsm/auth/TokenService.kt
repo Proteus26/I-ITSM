@@ -10,10 +10,11 @@ import org.springframework.stereotype.Service
 import java.time.Clock
 
 interface TokenService {
-    fun issue(user: User): IssuedToken
+    /** [tokenVersion] defaults to the user's loaded version; pass the result of a revocation to stay signed in. */
+    fun issue(user: User, tokenVersion: Int = user.tokenVersion): IssuedToken
 }
 
-/** Issues HS256-signed JWTs with claims sub, email, name, role, iss, iat, exp. */
+/** Issues HS256-signed JWTs with claims sub, email, name, role, ver (token version), iss, iat, exp. */
 @Service
 class JwtTokenService(
     private val encoder: JwtEncoder,
@@ -21,7 +22,7 @@ class JwtTokenService(
     private val clock: Clock,
 ) : TokenService {
 
-    override fun issue(user: User): IssuedToken {
+    override fun issue(user: User, tokenVersion: Int): IssuedToken {
         val now = clock.instant().let { it.minusNanos(it.nano % 1_000_000L) }
         val expiresAt = now.plus(properties.tokenTtl)
         val claims = JwtClaimsSet.builder()
@@ -32,6 +33,7 @@ class JwtTokenService(
             .claim("email", user.email)
             .claim("name", user.fullName)
             .claim("role", user.role.name)
+            .claim("ver", tokenVersion)
             .build()
         val header = JwsHeader.with(MacAlgorithm.HS256).build()
         val value = encoder.encode(JwtEncoderParameters.from(header, claims)).tokenValue

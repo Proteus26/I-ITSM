@@ -1,6 +1,8 @@
 package com.itsm.auth
 
 import com.itsm.user.EmailAlreadyRegisteredException
+import com.itsm.user.Employee
+import com.itsm.user.InvalidUserUpdateException
 import com.itsm.user.User
 import com.itsm.user.UserFactory
 import com.itsm.user.UserNotFoundException
@@ -14,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
+import java.time.temporal.ChronoUnit
 
 @Service
 class AuthService(
@@ -24,6 +27,8 @@ class AuthService(
     private val currentUser: CurrentUser,
     private val events: ApplicationEventPublisher,
     private val clock: Clock,
+    private val loginAttempts: LoginAttemptTracker,
+    private val sessionRevoker: SessionRevoker,
 ) {
     // Matched against when the email is unknown so both failure paths cost about the same.
     private val dummyHash: String = passwordEncoder.encode("dummy-password-for-timing")!!
@@ -36,9 +41,17 @@ class AuthService(
         return translatingEmailConflict({ employee.email }) { users.saveAndFlush(employee) }
     }
 
-    /** Deliberately not transactional: failure events must be published without a rollback-only transaction. */
+    /**
+     * Deliberately not transactional: failure events must be published without a rollback-only transaction.
+     *
+     * The throttle ([LoginAttemptTracker]) is called directly rather than through events: throttling is part of the
+     * login decision (it can reject before any password check), so it must not depend on listener presence or order.
+     */
     fun login(request: LoginRequest): LoginResponse {
         val email = normalizeEmail(request.email)
+        // First, and before any hashing: the answer must not depend on whether the account exists.
+        // This also counts the attempt (atomically); a failure needs no further bookkeeping.
+        loginAttempts.reserveAttempt(email)
         val user = users.findByEmail(email)
         if (user == null) {
             passwordEncoder.matches(request.password, dummyHash)
@@ -50,16 +63,43 @@ class AuthService(
         if (!user.active) throw failed(email, "ACCOUNT_DISABLED", AccountDisabledException())
 
         val token = tokenService.issue(user)
-        events.publishEvent(UserLoggedIn(user.id!!, clock.instant()))
-        return LoginResponse(token = token.value, expiresAt = token.expiresAt, user = user.toResponse())
+        val at = clock.instant().truncatedTo(ChronoUnit.MICROS) // database precision, so responses match later reads
+        loginAttempts.clear(email) // directly, so it does not depend on the order of event listeners
+        events.publishEvent(UserLoggedIn(user.id!!, at))
+        // The login columns are written by a listener in its own transaction, after this user was loaded:
+        // report what the database holds after that update (previous = the old last login, last = now).
+        val loggedIn = user.toResponse().copy(previousLoginAt = user.lastLoginAt, lastLoginAt = at)
+        return LoginResponse(token = token.value, expiresAt = token.expiresAt, user = loggedIn)
     }
 
     @Transactional(readOnly = true)
     fun me(): UserResponse = loadCurrent().toResponse()
 
+    /** Revokes all existing tokens (including the caller's) and returns a new one at the new token version. */
     @Transactional
-    fun changePassword(request: ChangePasswordRequest) {
-        loadCurrent().changePassword(passwordEncoder, request.currentPassword, request.newPassword)
+    fun changePassword(request: ChangePasswordRequest): LoginResponse {
+        val user = loadCurrent()
+        user.changePassword(passwordEncoder, request.currentPassword, request.newPassword)
+        // The token must carry the version produced by this very increment, not the entity's loaded one.
+        val token = tokenService.issue(user, sessionRevoker.revoke(user.id!!))
+        return LoginResponse(token = token.value, expiresAt = token.expiresAt, user = user.toResponse())
+    }
+
+    @Transactional
+    fun logoutAll() {
+        sessionRevoker.revoke(currentUser.get().id)
+    }
+
+    /** Null fields are unchanged; department is for employees only (400 otherwise). Email and role cannot be changed here. */
+    @Transactional
+    fun updateProfile(request: UpdateProfileRequest): UserResponse {
+        val user = loadCurrent()
+        if (request.department != null && user !is Employee) {
+            throw InvalidUserUpdateException("department applies to employees only")
+        }
+        request.fullName?.let { user.rename(it) }
+        if (user is Employee) request.department?.let { user.changeDepartment(it) }
+        return user.toResponse()
     }
 
     private fun loadCurrent(): User {

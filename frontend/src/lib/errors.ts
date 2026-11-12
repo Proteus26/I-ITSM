@@ -12,6 +12,8 @@ export class ApiError extends Error {
     readonly fieldErrors: Readonly<Record<string, string>> = {},
     /** True when the backend could not be reached at all (no HTTP response). */
     readonly unreachable: boolean = false,
+    /** Whole seconds from a `Retry-After` header (429 on login), when the backend sent one. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(detail || title);
     this.name = 'ApiError';
@@ -33,10 +35,10 @@ export class ApiError extends Error {
   }
 
   /** Builds an ApiError from an already-parsed body; tolerates anything (non-object, missing fields). */
-  static fromBody(status: number, body: unknown, statusText = ''): ApiError {
+  static fromBody(status: number, body: unknown, statusText = '', retryAfterSeconds?: number): ApiError {
     const fallbackTitle = statusText || 'HttpError';
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return new ApiError(status, fallbackTitle, `Request failed with status ${status}`);
+      return new ApiError(status, fallbackTitle, `Request failed with status ${status}`, {}, false, retryAfterSeconds);
     }
     const b = body as Record<string, unknown>;
     const title = typeof b.title === 'string' && b.title ? b.title : fallbackTitle;
@@ -47,7 +49,7 @@ export class ApiError extends Error {
         fieldErrors[field] = String(message);
       }
     }
-    return new ApiError(status, title, detail, fieldErrors);
+    return new ApiError(status, title, detail, fieldErrors, false, retryAfterSeconds);
   }
 
   /** Parses an error response; falls back to a generic error when the body is not JSON. */
@@ -58,13 +60,20 @@ export class ApiError extends Error {
     } catch {
       // empty or non-JSON body (e.g. an HTML error page from a proxy)
     }
-    return ApiError.fromBody(res.status, body, res.statusText);
+    return ApiError.fromBody(res.status, body, res.statusText, parseRetryAfter(res.headers.get('Retry-After')));
   }
 
   /** The error thrown when the backend cannot be reached at all. */
   static unreachable(): ApiError {
     return new ApiError(502, 'BadGateway', 'The server is unreachable. Please try again later.', {}, true);
   }
+}
+
+/** `Retry-After` in whole seconds ("120"); undefined for anything else (HTTP dates, junk, zero). */
+export function parseRetryAfter(value: string | null | undefined): number | undefined {
+  if (!value || !/^\d{1,9}$/.test(value.trim())) return undefined;
+  const n = Number(value.trim());
+  return n > 0 ? n : undefined;
 }
 
 /** A problem+json Response, used by the proxy for errors it generates itself. */
