@@ -140,16 +140,55 @@ class LoginAttemptTrackerTest {
 
     @Test
     fun `expired entries are swept first when the map is full`() {
-        attempt("a@x.com", 5) // locked
-        attempt("b@x.com")
+        // LRU order ends up as: a (live, eldest), b (expired), c (live)
+        attempt("b@x.com") // window ends at 10:15
         clock.advance(Duration.ofMinutes(10))
+        attempt("a@x.com", 4) // window ends at 10:25
+        attempt("b@x.com") // touched: b is now after a in LRU order, but its window is unchanged
         attempt("c@x.com")
-        clock.advance(Duration.ofMinutes(6)) // a and b expired, c live
+        clock.advance(Duration.ofMinutes(6)) // 10:16: b expired, a and c live
 
-        attempt("d@x.com") // full: sweep removes a and b, nothing live is evicted
-        attempt("e@x.com")
-        attempt("c@x.com", 4)
+        attempt("d@x.com") // full: the sweep removes b, so the eldest live entry (a) must not be evicted
 
-        assertLocked("c@x.com")
+        attempt("a@x.com") // a kept its 4 attempts, so this is the 5th
+        assertLocked("a@x.com")
+    }
+
+    @Test
+    fun `a second sweep within the sweep interval is skipped`() {
+        properties.loginThrottle.window = Duration.ofSeconds(10)
+        attempt("e1@x.com")
+        attempt("e2@x.com") // both end at +10s
+        clock.advance(Duration.ofSeconds(8))
+        attempt("e3@x.com", 4) // ends at +18s; map full, LRU order: e1, e2, e3
+        clock.advance(Duration.ofMillis(1500)) // +9.5s
+        attempt("n1@x.com") // full, nothing expired: first sweep (removes nothing), then e1 is evicted
+        clock.advance(Duration.ofMillis(100))
+        attempt("e2@x.com") // touch: order is now e3, n1, e2
+        clock.advance(Duration.ofMillis(600)) // +10.2s: e2 expired, 700 ms after the last sweep
+
+        attempt("n2@x.com") // full: sweep skipped, so the LRU entry e3 (live) is evicted instead of expired e2
+
+        // e3 was evicted and starts from zero again. Had the sweep run it would have kept its 4 attempts and be locked now.
+        attempt("e3@x.com", 2)
+    }
+
+    @Test
+    fun `the sweep runs again once the sweep interval has passed`() {
+        properties.loginThrottle.window = Duration.ofSeconds(10)
+        attempt("e1@x.com")
+        attempt("e2@x.com")
+        clock.advance(Duration.ofSeconds(8))
+        attempt("e3@x.com", 4)
+        clock.advance(Duration.ofMillis(1500))
+        attempt("n1@x.com") // first sweep at +9.5s
+        clock.advance(Duration.ofMillis(100))
+        attempt("e2@x.com")
+        clock.advance(Duration.ofMillis(1000)) // +10.6s: more than 1 s after the last sweep
+
+        attempt("n2@x.com") // sweep removes e2, e3 survives
+
+        attempt("e3@x.com")
+        assertLocked("e3@x.com")
     }
 }

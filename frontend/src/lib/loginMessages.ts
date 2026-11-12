@@ -1,6 +1,8 @@
-/** Fixed notices for the login page, picked by query flag. Query text itself is never shown. */
+import type { ApiError } from './errors';
+
+/** Fixed messages for the login page, picked by query flag. Query text itself is never shown. */
 export const EXPIRED_NOTICE = 'Your session has ended. Please log in again.';
-export const SIGNED_OUT_ALL_NOTICE = 'You have been signed out on all devices.';
+export const LOGGED_OUT_ALL_NOTICE = 'You have been logged out on all devices.';
 export const REGISTERED_NOTICE = 'Account created, please log in.';
 
 export interface LoginNotice {
@@ -11,7 +13,7 @@ export interface LoginNotice {
 /** The notice for the login page's query string, or null. */
 export function loginNotice(params: URLSearchParams): LoginNotice | null {
   if (params.get('expired') === '1') return { text: EXPIRED_NOTICE, kind: 'info' };
-  if (params.get('signedOut') === 'all') return { text: SIGNED_OUT_ALL_NOTICE, kind: 'info' };
+  if (params.get('loggedOut') === 'all') return { text: LOGGED_OUT_ALL_NOTICE, kind: 'info' };
   if (params.get('registered') === '1') return { text: REGISTERED_NOTICE, kind: 'success' };
   return null;
 }
@@ -31,4 +33,11 @@ export function formatRetryAfter(seconds: number | undefined): string {
 /** "Too many failed attempts. Try again in 3 minutes." */
 export function tooManyAttemptsMessage(seconds: number | undefined): string {
   return `Too many failed attempts. Try again in ${formatRetryAfter(seconds)}.`;
+}
+
+/** The error shown on the login form for a failed login. */
+export function loginErrorMessage(e: ApiError): string {
+  if (e.status === 429) return tooManyAttemptsMessage(e.retryAfterSeconds);
+  if (e.status === 400) return 'Enter a valid email address and your password.';
+  return e.userMessage;
 }

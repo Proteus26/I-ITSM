@@ -7,7 +7,7 @@ import { ApiError } from '../lib/errors';
 import { formString } from '../lib/forms';
 import { safeNext } from '../lib/redirect';
 import { startSession } from '../lib/session';
-import { loginNotice, tooManyAttemptsMessage } from '../lib/loginNotices';
+import { loginErrorMessage, loginNotice } from '../lib/loginMessages';
 
 const next = safeNext(Astro.url.searchParams.get('next'));
 let email = '';
@@ -24,12 +24,7 @@ if (Astro.request.method === 'POST') {
     return Astro.redirect(next);
   } catch (e) {
     if (!(e instanceof ApiError)) throw e;
-    error =
-      e.status === 429
-        ? tooManyAttemptsMessage(e.retryAfterSeconds)
-        : e.status === 400
-          ? 'Enter a valid email address and your password.'
-          : e.userMessage;
+    error = loginErrorMessage(e);
     Astro.response.status = e.status;
   }
 }

@@ -23,7 +23,7 @@ export interface UserResponse {
   createdAt: string;
   /** ISO instant of the last successful login; null (or absent) when the user never logged in. */
   lastLoginAt?: string | null;
-  /** ISO instant of the sign-in before the last one; null (or absent) until the second login. */
+  /** ISO instant of the login before the last one; null (or absent) until the second login. */
   previousLoginAt?: string | null;
   department?: string | null;
   technician?: TechnicianDetails | null;

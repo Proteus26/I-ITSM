@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildProfileRequest, cardForIntent, processAccountPost, type AccountApi, type AccountDeps } from '../src/lib/accountForms';
+import { buildProfileRequest, initialAccountState, processAccountPost, type AccountApi, type AccountDeps } from '../src/lib/accountForms';
 import { ApiError } from '../src/lib/errors';
 import type { LoadErrorContext } from '../src/lib/loadError';
 import { SESSION_COOKIE } from '../src/lib/session';
@@ -12,8 +12,12 @@ function form(fields: Record<string, string>) {
 
 function setup(api: Partial<AccountApi>, role: 'EMPLOYEE' | 'TECHNICIAN' = 'EMPLOYEE') {
   const calls: string[] = [];
+  const setOptions: (Record<string, unknown> | undefined)[] = [];
   const cookies = {
-    set: (name: string, value: string) => void calls.push(`set:${name}=${value}`),
+    set: (name: string, value: string, options?: Record<string, unknown>) => {
+      calls.push(`set:${name}=${value}`);
+      setOptions.push(options);
+    },
     delete: (name: string) => void calls.push(`delete:${name}`),
   };
   const ctx = {
@@ -31,7 +35,7 @@ function setup(api: Partial<AccountApi>, role: 'EMPLOYEE' | 'TECHNICIAN' = 'EMPL
     cookies,
     ctx,
   } as unknown as AccountDeps;
-  return { deps, calls };
+  return { deps, calls, setOptions };
 }
 
 const err = (status: number, detail = 'bad', errors?: Record<string, string>) => new ApiError(status, 'T', detail, errors ?? {});
@@ -47,12 +51,13 @@ describe('buildProfileRequest', () => {
 describe('processAccountPost', () => {
   it('change-password starts the new session before it redirects', async () => {
     const changePassword = vi.fn(async () => ({ token: 'NEW', tokenType: 'Bearer', expiresAt: '2026-12-01T00:00:00Z', user: {} as never }));
-    const { deps, calls } = setup({ changePassword });
+    const { deps, calls, setOptions } = setup({ changePassword });
     const r = await processAccountPost(form({ intent: 'change-password', currentPassword: 'old', newPassword: 'newpass12', confirmPassword: 'newpass12' }), deps);
 
     expect(changePassword).toHaveBeenCalledWith({ currentPassword: 'old', newPassword: 'newpass12' });
     expect(calls).toEqual([`set:${SESSION_COOKIE}=NEW`, 'redirect:/account?notice=changed']);
     expect(loc(r)).toBe('/account?notice=changed');
+    expect(setOptions[0]).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' });
   });
 
   it('a password mismatch stays on the password card without calling the backend', async () => {
@@ -99,11 +104,11 @@ describe('processAccountPost', () => {
     }
   });
 
-  it('logout-all clears the cookie and goes to the signed-out login page', async () => {
+  it('logout-all clears the cookie and goes to the logged-out login page', async () => {
     const { deps, calls } = setup({ logoutAll: async () => undefined });
     const r = await processAccountPost(form({ intent: 'logout-all' }), deps);
-    expect(calls).toEqual([`delete:${SESSION_COOKIE}`, 'redirect:/login?signedOut=all']);
-    expect(loc(r)).toBe('/login?signedOut=all');
+    expect(calls).toEqual([`delete:${SESSION_COOKIE}`, 'redirect:/login?loggedOut=all']);
+    expect(loc(r)).toBe('/login?loggedOut=all');
   });
 
   it('a 401 from the backend ends the session and redirects to login', async () => {
@@ -111,11 +116,16 @@ describe('processAccountPost', () => {
     const r = await processAccountPost(form({ intent: 'update-profile', fullName: 'A' }), deps);
     expect(r.kind).toBe('response');
     expect(calls[0]).toBe(`delete:${SESSION_COOKIE}`);
-    expect(loc(r)).toContain('/login?');
+    expect(loc(r)).toBe('/login?next=%2Faccount&expired=1');
   });
 
-  it('cardForIntent', () => {
-    expect(cardForIntent('update-profile')).toBe('profile');
-    expect(cardForIntent('constructor')).toBe('page');
+  it('initialAccountState shows the current values and no errors', () => {
+    expect(initialAccountState({ role: 'EMPLOYEE', fullName: 'Ann Lee', department: null })).toEqual({
+      errors: { profile: null, password: null, sessions: null, page: null },
+      profileFieldErrors: {},
+      passwordFieldErrors: {},
+      shownName: 'Ann Lee',
+      shownDepartment: '',
+    });
   });
 });

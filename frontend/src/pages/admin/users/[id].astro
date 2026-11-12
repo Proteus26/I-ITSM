@@ -17,8 +17,8 @@ if (!/^\d{1,15}$/.test(idParam)) return Astro.rewrite('/404');
 const id = Number(idParam);
 const api = backendFor(Astro.cookies);
 
-const NOTICES: Record<string, string> = { created: 'User created.', updated: 'Changes saved.', reset: "Password reset. The user's sessions were signed out.",
-  deactivated: 'User deactivated. Their sessions were signed out.',
+const NOTICES: Record<string, string> = { created: 'User created.', updated: 'Changes saved.', reset: "Password reset. The user's sessions were logged out.",
+  deactivated: 'User deactivated. Their sessions were logged out.',
   activated: 'User activated.',
 };
 const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
@@ -138,7 +138,7 @@ if (user && Astro.request.method === 'POST') {
               <form
                 method="post"
                 action={`/admin/users/${user.id}`}
-                data-confirm={user.active ? 'Deactivate this user? They will be signed out immediately.' : undefined}
+                data-confirm={user.active ? 'Deactivate this user? They will be logged out immediately.' : undefined}
               >
                 <input type="hidden" name="intent" value="set-active" />
                 <input type="hidden" name="active" value={String(!user.active)} />

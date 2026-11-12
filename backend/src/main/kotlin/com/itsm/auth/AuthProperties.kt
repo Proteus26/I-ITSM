@@ -12,7 +12,10 @@ class AuthProperties {
     var bootstrapAdmin: BootstrapAdmin = BootstrapAdmin()
     var loginThrottle: LoginThrottle = LoginThrottle()
 
-    /** After [maxAttempts] failed logins for one email within [window], further logins get 429 until the window ends. */
+    /**
+     * Every login attempt for one email counts (failed ones, and ones for disabled accounts). When [maxAttempts] is
+     * reached the email is locked for [window], measured from that moment; further logins get 429 until then.
+     */
     class LoginThrottle {
         var maxAttempts: Int = 5
         var window: Duration = Duration.ofMinutes(15)

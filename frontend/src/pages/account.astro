@@ -6,7 +6,7 @@ import RoleBadge from '../components/RoleBadge.astro';
 import { backendFor } from '../lib/backend';
 import { loginUrl } from '../lib/redirect';
 import { formatDate, formatDateTime, levelLabel } from '../lib/forms';
-import { processAccountPost, type AccountState } from '../lib/accountForms';
+import { initialAccountState, processAccountPost, type AccountState } from '../lib/accountForms';
 
 // The middleware guarantees a user on /account (see ROUTE_RULES in src/lib/access.ts); this keeps the types honest.
 const user = Astro.locals.user;
@@ -17,13 +17,7 @@ const NOTICES: Record<string, string> = { changed: 'Your password was changed.',
 const notice = Astro.request.method === 'GET' ? NOTICES[Astro.url.searchParams.get('notice') ?? ''] : undefined;
 
 // Each form posts a hidden `intent`; errors are shown on the card of the form that failed (see lib/accountForms.ts).
-let state: AccountState = {
-  errors: { profile: null, password: null, sessions: null, page: null },
-  profileFieldErrors: {},
-  passwordFieldErrors: {},
-  shownName: user.fullName,
-  shownDepartment: user.department ?? '',
-};
+let state: AccountState = initialAccountState(user);
 
 if (Astro.request.method === 'POST') {
   const result = await processAccountPost(await Astro.request.formData(), {
@@ -61,7 +55,7 @@ const tech = user.technician;
         )
       }
       <dt>Member since</dt><dd>{formatDate(user.createdAt)}</dd>
-      <dt>Previous sign-in</dt><dd>{user.previousLoginAt ? formatDateTime(user.previousLoginAt) : 'This is your first sign-in'}</dd>
+      <dt>Previous login</dt><dd>{user.previousLoginAt ? formatDateTime(user.previousLoginAt) : 'This is your first login'}</dd>
     </dl>
   </section>
 
@@ -97,11 +91,11 @@ const tech = user.technician;
     <form
       method="post"
       action="/account"
-      data-confirm="Sign out of all devices? You will need to log in again everywhere."
+      data-confirm="Log out of all devices? You will need to log in again everywhere."
       aria-describedby={errors.sessions ? 'sessions-error' : undefined}
     >
       <input type="hidden" name="intent" value="logout-all" />
-      <button class="btn btn-danger" type="submit">Sign out of all devices</button>
+      <button class="btn btn-danger" type="submit">Log out of all devices</button>
     </form>
   </section>
 </Layout>

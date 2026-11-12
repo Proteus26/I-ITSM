@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   EXPIRED_NOTICE,
   formatRetryAfter,
+  loginErrorMessage,
   loginNotice,
   REGISTERED_NOTICE,
-  SIGNED_OUT_ALL_NOTICE,
+  LOGGED_OUT_ALL_NOTICE,
   tooManyAttemptsMessage,
-} from '../src/lib/loginNotices';
+} from '../src/lib/loginMessages';
 import { ApiError, parseRetryAfter } from '../src/lib/errors';
 import { loginUrl } from '../src/lib/redirect';
 
@@ -37,12 +38,12 @@ describe('loginNotice', () => {
   const n = (q: string) => loginNotice(new URLSearchParams(q));
   it('maps flags to constants', () => {
     expect(n('expired=1')).toEqual({ text: EXPIRED_NOTICE, kind: 'info' });
-    expect(n('signedOut=all')).toEqual({ text: SIGNED_OUT_ALL_NOTICE, kind: 'info' });
+    expect(n('loggedOut=all')).toEqual({ text: LOGGED_OUT_ALL_NOTICE, kind: 'info' });
     expect(n('registered=1')).toEqual({ text: REGISTERED_NOTICE, kind: 'success' });
   });
   it('never reflects query text', () => {
     expect(n('expired=<b>hi</b>')).toBeNull();
-    expect(n('signedOut=evil')).toBeNull();
+    expect(n('loggedOut=evil')).toBeNull();
     expect(n('')).toBeNull();
   });
 });
@@ -64,5 +65,19 @@ describe('loginUrl', () => {
   it('adds expired only on request', () => {
     expect(loginUrl('/a')).toBe('/login?next=%2Fa');
     expect(loginUrl('/a', { expired: true })).toBe('/login?next=%2Fa&expired=1');
+  });
+});
+
+describe('loginErrorMessage', () => {
+  const e = (status: number, detail = 'Invalid email or password', retry?: number) => new ApiError(status, 'T', detail, {}, false, retry);
+  it('429 shows the wait, 400 a fixed hint, anything else the backend message', () => {
+    expect(loginErrorMessage(e(429, 'x', 300))).toBe('Too many failed attempts. Try again in 5 minutes.');
+    expect(loginErrorMessage(e(429, 'x'))).toBe('Too many failed attempts. Try again in a few minutes.');
+    expect(loginErrorMessage(e(400, 'Validation failed'))).toBe('Enter a valid email address and your password.');
+    expect(loginErrorMessage(e(401))).toBe('Invalid email or password');
+    expect(loginErrorMessage(e(403, 'Account is disabled'))).toBe('Account is disabled');
+  });
+  it('hides server error details', () => {
+    expect(loginErrorMessage(e(500, 'stack trace'))).toBe('Something went wrong on the server. Try again.');
   });
 });

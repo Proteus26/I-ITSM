@@ -162,7 +162,7 @@ In Swagger UI, click **Authorize** and paste the token.
 | `GET /api/auth/me` | logged in | Current user's profile (includes `lastLoginAt` and `previousLoginAt`; both null before the first login, `previousLoginAt` null until the second) |
 | `PATCH /api/auth/me` | logged in | `{ fullName?, department? }`, null or omitted = unchanged; `department` is for employees only (400 otherwise). Returns the user. Email and role cannot be changed here; other fields in the body are ignored, not rejected |
 | `POST /api/auth/change-password` | logged in | `{ currentPassword, newPassword }`. Returns **200** with a new login response `{ token, tokenType, expiresAt, user }`; all older tokens stop working, so the client must switch to the new token |
-| `POST /api/auth/logout-all` | logged in | Signs out everywhere: revokes every token of the caller, including this one (204) |
+| `POST /api/auth/logout-all` | logged in | Logs out everywhere: revokes every token of the caller, including this one (204) |
 | `GET /api/admin/users?role=&active=&q=&page=&size=` | admin | Paged, filtered user list |
 | `GET /api/admin/users/{id}` | admin | One user |
 | `POST /api/admin/users` | admin | Create an Employee, Technician or Admin |
@@ -214,7 +214,8 @@ class IncidentService(private val currentUser: CurrentUser) {
   429 (`application/problem+json`) with a `Retry-After` header in seconds, even with the right password, until
   `LOGIN_WINDOW` (default 15 minutes) has passed since the limit was reached. If the limit is not reached, counting restarts
   after one window. The check runs before password hashing, and unknown emails are counted the same way, so it does not
-  reveal whether an account exists. A successful login clears the counter. `AuthService` calls `LoginAttemptTracker`
+  reveal whether an account exists. A successful login clears the counter. Attempts on a disabled account (403) count too and are never cleared, so reactivating the account within
+  the window still gives 429 until the lock expires. `AuthService` calls `LoginAttemptTracker`
   directly; the `LoginFailed` and `UserLoggedIn` events remain for other observers.
   Limitations: the counters are in memory and per backend instance (not shared, reset on restart), and because the lock
   is per email, anyone can lock a known email out of logging in for one window by failing on purpose. Memory is bounded
@@ -239,23 +240,24 @@ class IncidentService(private val currentUser: CurrentUser) {
 - **Session expiry**: when `/api/auth/me` answers 401 (token expired or revoked), the middleware clears the cookie.
   A protected page redirects to `/login?next=<path>&expired=1` and the login page shows a fixed "Your session has ended"
   notice; a public page just renders as logged out. `handleLoadError` does the same for a 401 from any later backend call.
-  The login page only shows fixed notices chosen by flag (`expired=1`, `signedOut=all`, `registered=1`), never query text.
+  The login page only shows fixed notices chosen by flag (`expired=1`, `loggedOut=all`, `registered=1`), never query text.
   The account page does the same with `/account?notice=changed|profile` (shown after a redirect only, never after a failed post).
 - **Login throttling**: a 429 from `/api/auth/login` is shown as "Too many failed attempts. Try again in N minutes."
-  (from `Retry-After`, captured as `ApiError.retryAfterSeconds`; formatting in `src/lib/loginNotices.ts`: minutes, or hours beyond 120 minutes).
+  (from `Retry-After`, captured as `ApiError.retryAfterSeconds`; formatting in `src/lib/loginMessages.ts`: minutes, or hours beyond 120 minutes).
 - **Account page** (`/account`): three forms posting a hidden `intent` to the same page.
   - *Edit profile* sends `PATCH /api/auth/me` (full name; department only for employees, blank clears it).
   - *Change password* revokes the old token, so the page calls `startSession` with the new token from the response:
     the cookie is replaced and the user stays logged in.
-  - *Sign out of all devices* calls `POST /api/auth/logout-all`, clears the cookie and redirects to
-    `/login?signedOut=all`. Plain "Log out" is per-device (it only clears this browser's cookie); sign-out-all revokes every session.
+  - *Log out of all devices* calls `POST /api/auth/logout-all`, clears the cookie and redirects to
+    `/login?loggedOut=all`. Plain "Log out" is per-device (it only clears this browser's cookie); log-out-all revokes every session.
   - The form logic lives in `src/lib/accountForms.ts` and the `intent` dispatch in `src/lib/intent.ts` (also used by the
     admin user page); errors appear on the card of the form that failed, other errors in a page-level alert.
     Confirmation prompts use `data-confirm="..."` on a form, handled by `public/scripts/confirm.js` (no inline handlers;
-    without JavaScript the form simply submits).
-  - "Previous sign-in" (`previousLoginAt`, or "This is your first sign-in") is shown on the account page. Admins see "Last login"
+    without JavaScript the form simply submits; the button's own `data-confirm` wins over the form's, and repeated submits are
+    ignored for 3 seconds. A programmatic `form.submit()` fires no submit event and bypasses both).
+  - "Previous login" (`previousLoginAt`, or "This is your first login") is shown on the account page. Admins see "Last login"
     (`lastLoginAt`, "Never" if none) in the users list (date, full time on hover) and the user detail page.
-    An admin password reset or deactivation also signs that user out.
+    An admin password reset or deactivation also logs that user out.
 - **Protecting a new page**: add a rule to `ROUTE_RULES` in `src/lib/access.ts`. Paths that match no rule are public.
 
   ```ts

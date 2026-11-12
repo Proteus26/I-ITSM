@@ -2,7 +2,7 @@ import type { AstroCookies } from 'astro';
 import type { BackendClient } from './backend';
 import type { ApiError } from './errors';
 import { confirmMismatch, formErrorState, formString } from './forms';
-import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from './intent';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE, type IntentHandler } from './intent';
 import { handleLoadError, type LoadErrorContext } from './loadError';
 import { endSession, startSession } from './session';
 import type { Role, UpdateProfileRequest } from './types';
@@ -40,18 +40,8 @@ export function buildProfileRequest(role: Role, form: FormData): UpdateProfileRe
   return req;
 }
 
-const CARD_OF_INTENT: Record<string, AccountCard> = {
-  'update-profile': 'profile',
-  'change-password': 'password',
-  'logout-all': 'sessions',
-};
-
-/** The card an error for this intent is shown on. Unknown intents belong to no card. */
-export function cardForIntent(intent: string): AccountCard {
-  return Object.hasOwn(CARD_OF_INTENT, intent) ? CARD_OF_INTENT[intent]! : 'page';
-}
-
-function initialState(user: AccountDeps['user']): AccountState {
+/** The initial /account state: no errors, the form showing the user's current values. */
+export function initialAccountState(user: AccountDeps['user']): AccountState {
   return {
     errors: { profile: null, password: null, sessions: null, page: null },
     profileFieldErrors: {},
@@ -68,18 +58,24 @@ function initialState(user: AccountDeps['user']): AccountState {
  */
 export async function processAccountPost(form: FormData, deps: AccountDeps): Promise<AccountResult> {
   const { user, api, cookies, ctx } = deps;
-  const state = initialState(user);
+  const state = initialAccountState(user);
   let status = 400;
-  try {
-    const result = await dispatchIntent<Response | undefined>(form, {
-      'update-profile': async () => {
+
+  // One entry per intent: the card its errors belong to, and what it does. Unknown intents belong to the page.
+  const intents: Record<string, { card: AccountCard; run: IntentHandler<Response | undefined> }> = {
+    'update-profile': {
+      card: 'profile',
+      run: async () => {
         const req = buildProfileRequest(user.role, form);
         state.shownName = req.fullName ?? '';
         state.shownDepartment = req.department ?? '';
         await api.updateProfile(req);
         return ctx.redirect('/account?notice=profile');
       },
-      'change-password': async () => {
+    },
+    'change-password': {
+      card: 'password',
+      run: async () => {
         const currentPassword = formString(form, 'currentPassword', false);
         const newPassword = formString(form, 'newPassword', false);
         const mismatch = confirmMismatch(newPassword, formString(form, 'confirmPassword', false));
@@ -91,18 +87,26 @@ export async function processAccountPost(form: FormData, deps: AccountDeps): Pro
         startSession(cookies, await api.changePassword({ currentPassword, newPassword }));
         return ctx.redirect('/account?notice=changed');
       },
-      'logout-all': async () => {
+    },
+    'logout-all': {
+      card: 'sessions',
+      run: async () => {
         await api.logoutAll();
         endSession(cookies);
-        return ctx.redirect('/login?signedOut=all');
+        return ctx.redirect('/login?loggedOut=all');
       },
-    });
+    },
+  };
+
+  try {
+    const result = await dispatchIntent(form, Object.fromEntries(Object.entries(intents).map(([name, i]) => [name, i.run])));
     if (!result.known) state.errors.page = UNKNOWN_INTENT_MESSAGE;
     else if (result.value) return { kind: 'response', response: result.value };
   } catch (e) {
     const r = await handleLoadError(e, ctx, { inlineServerErrors: true });
     if (r instanceof Response) return { kind: 'response', response: r };
-    applyApiError(state, cardForIntent(formString(form, 'intent')), r);
+    const intent = formString(form, 'intent');
+    applyApiError(state, Object.hasOwn(intents, intent) ? intents[intent]!.card : 'page', r);
     status = r.status;
   }
   return { kind: 'state', state, status };

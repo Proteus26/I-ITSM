@@ -12,7 +12,7 @@ const tech = user.technician;
 
 <Layout title="Dashboard · I-ITSM">
   <h1>Hello, {user.fullName}</h1>
-  <p>You are signed in as <RoleBadge role={user.role} />.</p>
+  <p>You are logged in as <RoleBadge role={user.role} />.</p>
 
   {
     user.role === 'EMPLOYEE' && (

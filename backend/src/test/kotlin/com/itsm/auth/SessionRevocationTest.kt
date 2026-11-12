@@ -19,7 +19,6 @@ import tools.jackson.databind.json.JsonMapper
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -34,6 +33,7 @@ class SessionRevocationTest @Autowired constructor(
     private val encoder: JwtEncoder,
     private val properties: AuthProperties,
     private val revoker: SessionRevoker,
+    private val txManager: org.springframework.transaction.PlatformTransactionManager,
 ) {
     private val api = ApiClient(mvc, mapper)
     private val pw = "password123"
@@ -165,7 +165,7 @@ class SessionRevocationTest @Autowired constructor(
         val before = users.findByEmail(email)!!.tokenVersion
         assertEquals(0, before)
         revoker.revoke(users.findByEmail(email)!!.id!!)
-        assertNotEquals(before, users.findByEmail(email)!!.tokenVersion)
+        assertEquals(before + 1, users.findByEmail(email)!!.tokenVersion)
         assertNull(users.findByEmail(email)!!.lastLoginAt)
     }
 
@@ -195,6 +195,43 @@ class SessionRevocationTest @Autowired constructor(
 
         assertEquals((1..n).toList(), results.sorted())
         assertEquals(n, users.findByEmail(email)!!.tokenVersion)
+    }
+
+    @Test
+    fun `the token version bump rolls back with the surrounding transaction`() {
+        val email = api.uniqueEmail()
+        api.register(email, pw)
+        val id = users.findByEmail(email)!!.id!!
+        val token = api.token(email, pw)
+
+        kotlin.test.assertFailsWith<IllegalStateException> {
+            org.springframework.transaction.support.TransactionTemplate(txManager).executeWithoutResult {
+                revoker.revoke(id) // as change-password does, before a later step fails
+                throw IllegalStateException("boom")
+            }
+        }
+
+        assertEquals(0, users.findByEmail(email)!!.tokenVersion)
+        assertEquals(200, me(token))
+    }
+
+    @Test
+    fun `incrementTokenVersion refuses to run without a transaction`() {
+        kotlin.test.assertFailsWith<org.springframework.transaction.IllegalTransactionStateException> {
+            users.incrementTokenVersion(-1)
+        }
+    }
+
+    @Test
+    fun `a valid token for a deleted user is rejected`() {
+        val email = api.uniqueEmail()
+        api.register(email, pw)
+        val token = api.token(email, pw)
+        assertEquals(200, me(token))
+
+        users.deleteById(users.findByEmail(email)!!.id!!)
+
+        assertEquals(401, me(token))
     }
 
     @Test

@@ -17,7 +17,11 @@ import kotlin.test.assertTrue
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration::class)
-class LoginThrottleApiTest @Autowired constructor(mvc: MockMvc, mapper: JsonMapper) {
+class LoginThrottleApiTest @Autowired constructor(
+    mvc: MockMvc,
+    mapper: JsonMapper,
+    private val users: com.itsm.user.UserRepository,
+) {
     private val api = ApiClient(mvc, mapper)
     private val pw = "password123"
 
@@ -81,6 +85,17 @@ class LoginThrottleApiTest @Autowired constructor(mvc: MockMvc, mapper: JsonMapp
 
         assertEquals(429, api.login(locked, pw).response.status)
         assertEquals(200, api.login(other, pw).response.status)
+    }
+
+    @Test
+    fun `logins to a disabled account count towards the throttle`() {
+        val email = api.uniqueEmail()
+        api.register(email, pw)
+        users.findByEmail(email)!!.let { it.deactivate(); users.saveAndFlush(it) }
+
+        repeat(5) { assertEquals(403, api.login(email, pw).response.status) }
+
+        assertEquals(429, api.login(email, pw).response.status)
     }
 
     @Test

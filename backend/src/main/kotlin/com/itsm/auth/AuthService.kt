@@ -41,7 +41,12 @@ class AuthService(
         return translatingEmailConflict({ employee.email }) { users.saveAndFlush(employee) }
     }
 
-    /** Deliberately not transactional: failure events must be published without a rollback-only transaction. */
+    /**
+     * Deliberately not transactional: failure events must be published without a rollback-only transaction.
+     *
+     * The throttle ([LoginAttemptTracker]) is called directly rather than through events: throttling is part of the
+     * login decision (it can reject before any password check), so it must not depend on listener presence or order.
+     */
     fun login(request: LoginRequest): LoginResponse {
         val email = normalizeEmail(request.email)
         // First, and before any hashing: the answer must not depend on whether the account exists.
@@ -60,7 +65,7 @@ class AuthService(
         val token = tokenService.issue(user)
         val at = clock.instant().truncatedTo(ChronoUnit.MICROS) // database precision, so responses match later reads
         loginAttempts.clear(email) // directly, so it does not depend on the order of event listeners
-        events.publishEvent(UserLoggedIn(user.id!!, user.email, at))
+        events.publishEvent(UserLoggedIn(user.id!!, at))
         // The login columns are written by a listener in its own transaction, after this user was loaded:
         // report what the database holds after that update (previous = the old last login, last = now).
         val loggedIn = user.toResponse().copy(previousLoginAt = user.lastLoginAt, lastLoginAt = at)

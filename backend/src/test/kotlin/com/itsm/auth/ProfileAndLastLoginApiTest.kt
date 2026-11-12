@@ -80,12 +80,12 @@ class ProfileAndLastLoginApiTest @Autowired constructor(
 
     @Test
     fun `the recorder swallows failures and ignores unknown users`() {
-        recorder.onUserLoggedIn(UserLoggedIn(-1, "ghost@example.com", java.time.Instant.now()))
+        recorder.onUserLoggedIn(UserLoggedIn(-1, java.time.Instant.now()))
 
         val broken = org.mockito.Mockito.mock(UserRepository::class.java)
         val at = java.time.Instant.now()
         org.mockito.Mockito.`when`(broken.recordLogin(1L, at)).thenThrow(IllegalStateException("db down"))
-        LastLoginRecorder(broken).onUserLoggedIn(UserLoggedIn(1, "a@example.com", at))
+        LastLoginRecorder(broken).onUserLoggedIn(UserLoggedIn(1, at))
     }
 
     @Test
