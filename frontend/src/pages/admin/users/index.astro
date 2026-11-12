@@ -5,7 +5,7 @@ import RoleBadge from '../../../components/RoleBadge.astro';
 import StatusBadge from '../../../components/StatusBadge.astro';
 import { backendFor } from '../../../lib/backend';
 import { handleLoadError } from '../../../lib/loadError';
-import { formatDate, levelLabel, PAGE_BOUNDS, parseOptionalInt, parseRole, pluralize, roleLabel } from '../../../lib/forms';
+import { formatDate, formatDateTime, levelLabel, PAGE_BOUNDS, parseOptionalInt, parseRole, pluralize, roleLabel } from '../../../lib/forms';
 import { ROLES } from '../../../lib/types';
 
 const params = Astro.url.searchParams;
@@ -98,6 +98,7 @@ function pageHref(p: number): string {
                   <th scope="col">Status</th>
                   <th scope="col">Technician</th>
                   <th scope="col">Created</th>
+                  <th scope="col">Last login</th>
                 </tr>
               </thead>
               <tbody>
@@ -113,6 +114,9 @@ function pageHref(p: number): string {
                         : u.department ?? '—'}
                     </td>
                     <td data-label="Created">{formatDate(u.createdAt)}</td>
+                    <td data-label="Last login">
+                      {u.lastLoginAt ? <time datetime={u.lastLoginAt} title={formatDateTime(u.lastLoginAt)}>{formatDate(u.lastLoginAt)}</time> : 'Never'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

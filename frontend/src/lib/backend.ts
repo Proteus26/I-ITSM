@@ -11,6 +11,7 @@ import type {
   PageResponse,
   Ping,
   RegisterRequest,
+  UpdateProfileRequest,
   UpdateUserRequest,
   UserResponse,
 } from './types';
@@ -32,7 +33,14 @@ function invalidResponse(): ApiError {
 export function isUserResponse(v: unknown): v is UserResponse {
   if (typeof v !== 'object' || v === null) return false;
   const u = v as Record<string, unknown>;
-  return typeof u.id === 'number' && typeof u.email === 'string' && (ROLES as readonly string[]).includes(u.role as string);
+  const optionalDate = (x: unknown) => x === undefined || x === null || typeof x === 'string';
+  return (
+    typeof u.id === 'number' &&
+    typeof u.email === 'string' &&
+    (ROLES as readonly string[]).includes(u.role as string) &&
+    optionalDate(u.lastLoginAt) &&
+    optionalDate(u.previousLoginAt)
+  );
 }
 
 /**
@@ -80,10 +88,14 @@ export class BackendClient {
     return this.request('GET', '/api/ping');
   }
 
-  async login(req: LoginRequest): Promise<LoginResponse> {
-    const res = await this.request<LoginResponse>('POST', '/api/auth/login', req);
+  private async tokenRequest(path: string, body: unknown): Promise<LoginResponse> {
+    const res = await this.request<LoginResponse>('POST', path, body);
     if (typeof res?.token !== 'string' || !res.token || !isUserResponse(res.user)) throw invalidResponse();
     return res;
+  }
+
+  login(req: LoginRequest): Promise<LoginResponse> {
+    return this.tokenRequest('/api/auth/login', req);
   }
 
   register(req: RegisterRequest): Promise<UserResponse> {
@@ -96,8 +108,20 @@ export class BackendClient {
     return user;
   }
 
-  changePassword(req: ChangePasswordRequest): Promise<void> {
-    return this.request('POST', '/api/auth/change-password', req);
+  /** Revokes the current token and answers with a new one: the caller must start a session with it. */
+  changePassword(req: ChangePasswordRequest): Promise<LoginResponse> {
+    return this.tokenRequest('/api/auth/change-password', req);
+  }
+
+  /** Revokes every token of the user, including the current one (204). */
+  logoutAll(): Promise<void> {
+    return this.request('POST', '/api/auth/logout-all');
+  }
+
+  async updateProfile(req: UpdateProfileRequest): Promise<UserResponse> {
+    const user = await this.request<UserResponse>('PATCH', '/api/auth/me', req);
+    if (!isUserResponse(user)) throw invalidResponse();
+    return user;
   }
 
   listUsers(query: ListUsersQuery = {}): Promise<PageResponse<UserResponse>> {

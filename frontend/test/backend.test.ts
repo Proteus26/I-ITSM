@@ -75,7 +75,80 @@ describe('BackendClient requests', () => {
 describe('BackendClient responses', () => {
   it('returns undefined for 204', async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
-    await expect(new BackendClient('t', base).changePassword({ currentPassword: 'a', newPassword: 'b' })).resolves.toBeUndefined();
+    await expect(new BackendClient('t', base).logoutAll()).resolves.toBeUndefined();
+    const { url, init } = call();
+    expect(url).toBe(`${base}/api/auth/logout-all`);
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(init.headers.Authorization).toBe('Bearer t');
+  });
+
+  it('the user guard accepts null or absent login dates and rejects non-string ones', async () => {
+    const { isUserResponse } = await import('../src/lib/backend');
+    expect(isUserResponse({ ...user, lastLoginAt: null, previousLoginAt: null })).toBe(true);
+    expect(isUserResponse({ ...user, previousLoginAt: '2026-11-12T10:00:00Z' })).toBe(true);
+    expect(isUserResponse({ ...user, previousLoginAt: 5 })).toBe(false);
+    expect(isUserResponse({ ...user, lastLoginAt: {} })).toBe(false);
+  });
+
+  it('changePassword returns the new session and validates it like login', async () => {
+    const login = { token: 'new', tokenType: 'Bearer', expiresAt: '2026-12-01T00:00:00Z', user: { ...user, lastLoginAt: null } };
+    fetchMock.mockResolvedValue(jsonRes(login));
+    await expect(new BackendClient('t', base).changePassword({ currentPassword: 'a', newPassword: 'b' })).resolves.toEqual(login);
+    const { url, init } = call();
+    expect(url).toBe(`${base}/api/auth/change-password`);
+    expect(JSON.parse(init.body as string)).toEqual({ currentPassword: 'a', newPassword: 'b' });
+  });
+
+  it('changePassword rejects a malformed 200 as 502', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ tokenType: 'Bearer' }));
+    const e = await new BackendClient('t', base).changePassword({ currentPassword: 'a', newPassword: 'b' }).catch((x) => x);
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e.status).toBe(502);
+  });
+
+  it('changePassword with a wrong current password is a 400 ApiError', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ title: 'InvalidCredentialsException', status: 400, detail: 'Current password is incorrect' }, 400));
+    const e = await new BackendClient('t', base).changePassword({ currentPassword: 'x', newPassword: 'y' }).catch((x) => x);
+    expect(e.status).toBe(400);
+    expect(e.detail).toBe('Current password is incorrect');
+  });
+
+  it('updateProfile PATCHes /me and returns the user (lastLoginAt null or absent are fine)', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ ...user, lastLoginAt: '2026-11-12T10:00:00Z' }));
+    const res = await new BackendClient('t', base).updateProfile({ fullName: 'New', department: '' });
+    expect(res.lastLoginAt).toBe('2026-11-12T10:00:00Z');
+    const { url, init } = call();
+    expect(url).toBe(`${base}/api/auth/me`);
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({ fullName: 'New', department: '' });
+  });
+
+  it('updateProfile rejects a non-user body as 502 and surfaces validation errors', async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes({ nope: 1 }));
+    const bad = await new BackendClient('t', base).updateProfile({}).catch((x) => x);
+    expect(bad.status).toBe(502);
+    fetchMock.mockResolvedValueOnce(jsonRes({ title: 'ValidationError', status: 400, detail: 'Validation failed', errors: { fullName: 'must not be blank' } }, 400));
+    const e = await new BackendClient('t', base).updateProfile({ fullName: ' ' }).catch((x) => x);
+    expect(e.fieldError('fullName')).toBe('must not be blank');
+  });
+
+  it('captures Retry-After on a 429', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ title: 'TooManyLoginAttemptsException', status: 429, detail: 'Too many failed login attempts. Try again later.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '300' },
+      }),
+    );
+    const e = await new BackendClient(undefined, base).login({ email: 'a@b.c', password: 'x' }).catch((x) => x);
+    expect(e.status).toBe(429);
+    expect(e.retryAfterSeconds).toBe(300);
+  });
+
+  it('leaves retryAfterSeconds undefined without a usable header', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 429, headers: { 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' } }));
+    const e = await new BackendClient(undefined, base).login({ email: 'a@b.c', password: 'x' }).catch((x) => x);
+    expect(e.retryAfterSeconds).toBeUndefined();
   });
 
   it('turns problem+json into an ApiError', async () => {

@@ -27,6 +27,7 @@ class AuthApiTest @Autowired constructor(
     private val users: UserRepository,
     private val jwtDecoder: JwtDecoder,
     private val jwtConverter: UserJwtAuthenticationConverter,
+    private val revoker: SessionRevoker,
 ) {
     private val api = ApiClient(mvc, mapper)
 
@@ -221,7 +222,7 @@ class AuthApiTest @Autowired constructor(
             mapOf("currentPassword" to "oldpassword1", "newPassword" to "newpassword1"),
             token,
         )
-        assertEquals(204, ok.response.status)
+        assertEquals(200, ok.response.status)
         assertEquals(401, api.login(email, "oldpassword1").response.status)
         assertEquals(200, api.login(email, "newpassword1").response.status)
     }
@@ -266,19 +267,22 @@ class AuthApiTest @Autowired constructor(
     }
 
     @Test
-    fun `an existing token stops working as soon as the user is deactivated and works again after reactivation`() {
+    fun `an existing token stops working as soon as the user is deactivated and stays rejected after reactivation`() {
         val email = api.uniqueEmail()
         api.register(email)
         val token = api.token(email, "password123")
         assertEquals(200, api.get("/api/auth/me", token).response.status)
 
         users.saveAndFlush(users.findByEmail(email)!!.also { it.deactivate() })
+        revoker.revoke(users.findByEmail(email)!!.id!!) // what AdminUserService does on deactivation
         val rejected = api.get("/api/auth/me", token)
         assertEquals(401, rejected.response.status)
         assertTrue(rejected.response.contentType!!.startsWith("application/problem+json"))
 
+        // Deactivation (with the revocation) bumped the token version, so the old token stays dead; a fresh login works.
         users.saveAndFlush(users.findByEmail(email)!!.also { it.activate() })
-        assertEquals(200, api.get("/api/auth/me", token).response.status)
+        assertEquals(401, api.get("/api/auth/me", token).response.status)
+        assertEquals(200, api.get("/api/auth/me", api.token(email, "password123")).response.status)
     }
 
     @Test

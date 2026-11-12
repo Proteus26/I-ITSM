@@ -8,7 +8,7 @@ import java.time.Instant
  * Login runs outside a transaction, so consume this (and [LoginFailed]) with a plain `@EventListener`;
  * `@TransactionalEventListener` would never fire. A listener that writes should open its own transaction.
  */
-data class UserLoggedIn(val userId: Long, val at: Instant)
+data class UserLoggedIn(val userId: Long, val email: String, val at: Instant)
 
 /**
  * Published after a failed login; [reason] is one of UNKNOWN_EMAIL, BAD_PASSWORD, ACCOUNT_DISABLED.

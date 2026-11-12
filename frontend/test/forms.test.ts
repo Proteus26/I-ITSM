@@ -97,3 +97,12 @@ describe('status, plural and date helpers', () => {
     expect(LEVEL_OPTIONS.map((o) => o.label)).toEqual(['L1', 'L2', 'Team lead']);
   });
 });
+
+describe('formatLogin', () => {
+  it('formats a login and says Never otherwise', async () => {
+    const { formatLogin } = await import('../src/lib/forms');
+    expect(formatLogin('2026-11-12T21:46:00Z')).toBe('12 Nov 2026, 21:46 UTC');
+    expect(formatLogin(null)).toBe('Never');
+    expect(formatLogin(undefined)).toBe('Never');
+  });
+});

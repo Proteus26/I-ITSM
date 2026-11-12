@@ -1,8 +1,10 @@
 package com.itsm.auth
 
+import com.itsm.user.NOT_BLANK
 import com.itsm.user.UserResponse
 import jakarta.validation.constraints.Email
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
 import java.time.Instant
 
@@ -15,7 +17,7 @@ data class RegisterRequest(
 )
 
 data class LoginRequest(
-    @field:NotBlank @field:Email val email: String,
+    @field:NotBlank @field:Email @field:Size(max = 255) val email: String,
     // No length limit: an over-long password simply fails the credential check (401), it is never a 400.
     @field:NotBlank val password: String,
 )
@@ -24,6 +26,12 @@ data class ChangePasswordRequest(
     // No length limit: an over-long current password is reported as incorrect, like any other wrong one.
     @field:NotBlank val currentPassword: String,
     @field:NotBlank @field:ValidPassword val newPassword: String,
+)
+
+/** Self-service profile update; null means "leave unchanged". A blank department clears it (employees only). */
+data class UpdateProfileRequest(
+    @field:Pattern(regexp = NOT_BLANK, message = "must not be blank") @field:Size(max = 255) val fullName: String? = null,
+    @field:Size(max = 255) val department: String? = null,
 )
 
 data class LoginResponse(

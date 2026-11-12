@@ -20,6 +20,6 @@ export function safeNext(next: string | null | undefined, fallback: string = DEF
 }
 
 /** `/login?next=<path>`, for sending an unauthenticated visitor to the login page. */
-export function loginUrl(returnTo: string): string {
-  return `/login?next=${encodeURIComponent(returnTo)}`;
+export function loginUrl(returnTo: string, options: { expired?: boolean } = {}): string {
+  return `/login?next=${encodeURIComponent(returnTo)}${options.expired ? '&expired=1' : ''}`;
 }

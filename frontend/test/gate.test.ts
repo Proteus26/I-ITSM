@@ -64,6 +64,26 @@ describe('gate (middleware body)', () => {
     expect(deleted).toEqual([SESSION_COOKIE]);
     expect(locals.user).toBeNull();
     expect(locals.backendDown).toBe(false);
+    expect(res.headers.get('Location')).toBe('/login?next=%2Fdashboard&expired=1');
+  });
+
+  it('a 401 on a public page clears the cookie and continues without redirecting', async () => {
+    const { context, locals, next, deleted } = setup('/', 'stale');
+    const res = await gate(context, next, () => ({ me: async () => Promise.reject(new ApiError(401, 'Unauthorized', 'x')) }));
+    expect(await res.text()).toBe('next');
+    expect(deleted).toEqual([SESSION_COOKIE]);
+    expect(locals.user).toBeNull();
+  });
+
+  it('a 401 keeps next safe (encoded, query preserved)', async () => {
+    const { context, next } = setup('/admin/users?q=a&b=//evil.example', 'stale');
+    const res = await gate(context, next, () => ({ me: async () => Promise.reject(new ApiError(401, 'Unauthorized', 'x')) }));
+    expect(res.headers.get('Location')).toBe(`/login?next=${encodeURIComponent('/admin/users?q=a&b=//evil.example')}&expired=1`);
+  });
+
+  it('no cookie: the redirect carries no expired flag', async () => {
+    const { context, next } = setup('/dashboard');
+    const res = await gate(context, next, () => ({ me: vi.fn() }));
     expect(res.headers.get('Location')).toBe('/login?next=%2Fdashboard');
   });
 

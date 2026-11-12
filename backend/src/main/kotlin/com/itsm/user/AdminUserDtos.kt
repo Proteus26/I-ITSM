@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Size
 
 private const val MAX_SKILLS = 20
 private const val MAX_SKILL_CODE_LENGTH = 255 // technician_skills.category_code is varchar(255)
-private const val NOT_BLANK = ".*\\S.*" // null stays valid (field unchanged); present-but-blank is a validation error
+internal const val NOT_BLANK = ".*\\S.*" // null stays valid (field unchanged); present-but-blank is a validation error
 
 data class PageResponse<T>(
     val content: List<T>,

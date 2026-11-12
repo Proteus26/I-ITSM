@@ -88,6 +88,11 @@ export function formatDateTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : `${DATE_TIME.format(d)} UTC`;
 }
 
+/** "12 Nov 2026, 21:46 UTC", or "Never" when there was no login. */
+export function formatLogin(iso: string | null | undefined): string {
+  return iso ? formatDateTime(iso) : 'Never';
+}
+
 export function roleLabel(role: Role): string {
   return { EMPLOYEE: 'Employee', TECHNICIAN: 'Technician', ADMIN: 'Administrator' }[role];
 }

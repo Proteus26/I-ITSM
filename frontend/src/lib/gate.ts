@@ -33,6 +33,7 @@ export async function gate(
   locals.user = null;
   locals.backendDown = false;
 
+  let expired = false;
   const token = readToken(cookies);
   if (token && !url.pathname.startsWith('/api/')) {
     try {
@@ -40,6 +41,7 @@ export async function gate(
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         endSession(cookies);
+        expired = true;
       } else {
         locals.backendDown = true; // unreachable or failing: not logged in as far as we know
       }
@@ -51,7 +53,7 @@ export async function gate(
     case 'login':
       // Do not bounce to /login when the real problem is that the backend is down.
       if (locals.backendDown) return context.rewrite('/503');
-      return context.redirect(loginUrl(url.pathname + url.search));
+      return context.redirect(loginUrl(url.pathname + url.search, { expired }));
     case 'forbidden':
       return context.rewrite('/403');
     case 'home':

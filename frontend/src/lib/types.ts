@@ -21,6 +21,10 @@ export interface UserResponse {
   active: boolean;
   /** ISO instant */
   createdAt: string;
+  /** ISO instant of the last successful login; null (or absent) when the user never logged in. */
+  lastLoginAt?: string | null;
+  /** ISO instant of the sign-in before the last one; null (or absent) until the second login. */
+  previousLoginAt?: string | null;
   department?: string | null;
   technician?: TechnicianDetails | null;
 }
@@ -56,6 +60,12 @@ export interface LoginRequest {
 export interface ChangePasswordRequest {
   currentPassword: string;
   newPassword: string;
+}
+
+export interface UpdateProfileRequest {
+  fullName?: string;
+  /** Employees only; a blank value clears it. */
+  department?: string;
 }
 
 export interface CreateUserRequest {

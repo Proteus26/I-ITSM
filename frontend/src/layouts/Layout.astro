@@ -25,5 +25,6 @@ const { user, backendDown } = Astro.locals;
       {backendDown && <Alert kind="warning">The server could not be reached, so your sign-in status could not be checked.</Alert>}
       <slot />
     </main>
+    <script is:inline src="/scripts/confirm.js" defer></script>
   </body>
 </html>

@@ -27,6 +27,19 @@ class UserJwtAuthenticationConverter(private val users: UserRepository) : Conver
         val id = jwt.subject?.toLongOrNull() ?: throw BadCredentialsException("Token has no valid subject")
         val user = users.findAuthViewById(id) ?: throw BadCredentialsException("Token user no longer exists")
         if (!user.active) throw DisabledException("Account is disabled")
+        if (tokenVersionOf(jwt) != user.tokenVersion.toLong()) throw BadCredentialsException("Token has been revoked")
         return UserAuthenticationToken(jwt, AuthenticatedUser(id, user.email, Role.valueOf(user.role)))
+    }
+
+    /**
+     * A token without a "ver" claim (issued before versioning existed) counts as version 0. Otherwise the claim must
+     * be a non-negative integral number (Int or Long); anything else (string, fraction, negative) is rejected.
+     */
+    private fun tokenVersionOf(jwt: Jwt): Long = when (val raw = jwt.claims["ver"]) {
+        null -> 0L
+        is Int, is Long -> (raw as Number).toLong().also {
+            if (it < 0) throw BadCredentialsException("Token has an invalid version")
+        }
+        else -> throw BadCredentialsException("Token has an invalid version")
     }
 }

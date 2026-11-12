@@ -7,12 +7,12 @@ import { ApiError } from '../lib/errors';
 import { formString } from '../lib/forms';
 import { safeNext } from '../lib/redirect';
 import { startSession } from '../lib/session';
+import { loginNotice, tooManyAttemptsMessage } from '../lib/loginNotices';
 
-const REGISTERED_NOTICE = 'Account created, please log in.';
 const next = safeNext(Astro.url.searchParams.get('next'));
 let email = '';
 let error: string | null = null;
-const justRegistered = Astro.url.searchParams.get('registered') === '1';
+const notice = loginNotice(Astro.url.searchParams);
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -24,7 +24,12 @@ if (Astro.request.method === 'POST') {
     return Astro.redirect(next);
   } catch (e) {
     if (!(e instanceof ApiError)) throw e;
-    error = e.status === 400 ? 'Enter a valid email address and your password.' : e.userMessage;
+    error =
+      e.status === 429
+        ? tooManyAttemptsMessage(e.retryAfterSeconds)
+        : e.status === 400
+          ? 'Enter a valid email address and your password.'
+          : e.userMessage;
     Astro.response.status = e.status;
   }
 }
@@ -33,7 +38,7 @@ if (Astro.request.method === 'POST') {
 <Layout title="Log in · I-ITSM">
   <section class="card card-narrow">
     <h1>Log in</h1>
-    {justRegistered && !error && <Alert kind="success">{REGISTERED_NOTICE}</Alert>}
+    {notice && !error && <Alert kind={notice.kind}>{notice.text}</Alert>}
     {error && <Alert kind="error" id="login-error">{error}</Alert>}
     <form method="post">
       <p class="hint required-hint">* required</p>

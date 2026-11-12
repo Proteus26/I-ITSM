@@ -1,6 +1,7 @@
 package com.itsm.user
 
 import com.itsm.auth.CurrentUser
+import com.itsm.auth.SessionRevoker
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -13,6 +14,7 @@ class AdminUserService(
     private val userFactory: UserFactory,
     private val passwordEncoder: PasswordEncoder,
     private val currentUser: CurrentUser,
+    private val sessionRevoker: SessionRevoker,
 ) {
 
     @Transactional(readOnly = true)
@@ -69,7 +71,14 @@ class AdminUserService(
                 user.changeEmail(email)
             }
         }
-        request.active?.let { if (it) user.activate() else user.deactivate() }
+        request.active?.let {
+            if (it) {
+                user.activate()
+            } else {
+                user.deactivate()
+                sessionRevoker.revoke(id)
+            }
+        }
         if (user is Employee) request.department?.let { user.changeDepartment(it) }
         if (user is Technician) {
             request.level?.let { user.changeLevel(it) }
@@ -83,6 +92,7 @@ class AdminUserService(
     @Transactional
     fun resetPassword(id: Long, request: ResetPasswordRequest) {
         find(id).resetPassword(passwordEncoder, request.newPassword)
+        sessionRevoker.revoke(id)
     }
 
     private fun find(id: Long): User = users.findById(id).orElseThrow { UserNotFoundException(id) }

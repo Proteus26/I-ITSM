@@ -1,8 +1,11 @@
 package com.itsm.web
 
+import com.itsm.auth.TooManyLoginAttemptsException
 import com.itsm.common.exception.ItsmException
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
+import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.web.bind.MethodArgumentNotValidException
@@ -20,6 +23,16 @@ class GlobalExceptionHandler {
         ProblemDetail.forStatusAndDetail(ex.status, ex.message ?: ex.status.reasonPhrase).apply {
             title = ex::class.simpleName
         }
+
+    /** 429 with a Retry-After header (whole seconds, at least 1). */
+    @ExceptionHandler(TooManyLoginAttemptsException::class)
+    fun handleTooManyLoginAttempts(ex: TooManyLoginAttemptsException): ResponseEntity<ProblemDetail> {
+        val problem = ProblemDetail.forStatusAndDetail(ex.status, ex.message ?: ex.status.reasonPhrase).apply {
+            title = ex::class.simpleName
+        }
+        val seconds = ((ex.retryAfter.toMillis() + 999) / 1000).coerceAtLeast(1)
+        return ResponseEntity.status(ex.status).header(HttpHeaders.RETRY_AFTER, seconds.toString()).body(problem)
+    }
 
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun handleValidation(ex: MethodArgumentNotValidException): ProblemDetail =
