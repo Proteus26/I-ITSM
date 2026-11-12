@@ -34,8 +34,8 @@ data class CreateUserRequest(
 
 /** Every field is optional; null means "leave unchanged". See [AdminUserService.update]. */
 data class UpdateUserRequest(
-    @field:Pattern(regexp = NOT_BLANK) @field:Size(max = 255) val fullName: String? = null,
-    @field:Pattern(regexp = NOT_BLANK) @field:Email @field:Size(max = 255) val email: String? = null,
+    @field:Pattern(regexp = NOT_BLANK, message = "must not be blank") @field:Size(max = 255) val fullName: String? = null,
+    @field:Pattern(regexp = NOT_BLANK, message = "must not be blank") @field:Email @field:Size(max = 255) val email: String? = null,
     val active: Boolean? = null,
     @field:Size(max = 255) val department: String? = null,
     val level: TechnicianLevel? = null,

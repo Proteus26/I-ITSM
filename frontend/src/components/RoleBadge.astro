@@ -1,0 +1,10 @@
+---
+import type { Role } from '../lib/types';
+import { roleLabel } from '../lib/forms';
+interface Props {
+  role: Role;
+}
+const { role } = Astro.props;
+---
+
+<span class={`badge badge-${role.toLowerCase()}`}>{roleLabel(role)}</span>

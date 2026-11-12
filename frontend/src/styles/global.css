@@ -1,0 +1,452 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1b1f24;
+  --muted: #5b6573;
+  --border: #d6dbe2;
+  --primary: #2459c7;
+  --primary-text: #ffffff;
+  --danger: #b3261e;
+  --danger-text: #ffffff;
+  --danger-bg: #fdecea;
+  --success: #1c6b3a;
+  --success-bg: #e6f4ea;
+  --info: #1a4fa3;
+  --info-bg: #e8f0fe;
+  --warn-bg: #fff4e0;
+  --neutral: #444c58;
+  --neutral-bg: #eceef1;
+  --input-border: #6b7380;
+  --hover-bg: #e8f0fe;
+  --disabled-bg: #e4e7eb;
+  --disabled-text: #6b7380;
+  --radius: 8px;
+  --focus: #1a73e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101317;
+    --surface: #181c22;
+    --text: #e8eaed;
+    --muted: #9aa4b2;
+    --border: #333a44;
+    --primary: #7aa2f7;
+    --primary-text: #0b1020;
+    --danger: #f2877f;
+    --danger-text: #1a0604;
+    --danger-bg: #3a1a18;
+    --success: #7fd69b;
+    --success-bg: #14301e;
+    --info: #a9c1f8;
+    --info-bg: #1b2740;
+    --warn-bg: #382a10;
+    --neutral: #c3cad4;
+    --neutral-bg: #2a3039;
+    --input-border: #7d8796;
+    --hover-bg: #1b2740;
+    --disabled-bg: #232932;
+    --disabled-text: #8b95a3;
+    --focus: #8ab4f8;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+a {
+  color: var(--primary);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -4rem;
+  z-index: 10;
+  padding: 0.5rem 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--focus);
+  border-radius: var(--radius);
+}
+
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+main:focus {
+  outline: none;
+}
+
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+h1 {
+  margin-top: 0;
+  font-size: 1.6rem;
+}
+
+.card > :first-child {
+  margin-top: 0;
+}
+
+.card > :last-child {
+  margin-bottom: 0;
+}
+
+h2 {
+  font-size: 1.2rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.card-narrow {
+  max-width: 28rem;
+  margin: 2rem auto;
+}
+
+.card-sm {
+  max-width: 28rem;
+}
+
+.card-md {
+  max-width: 36rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+/* Declared after .row so it wins when both classes are used: a page heading with an action on the right. */
+.row-between {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.row-between > h1 {
+  margin: 0;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.btn:hover {
+  filter: brightness(1.08);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--primary);
+}
+
+.btn-secondary:hover {
+  background: var(--hover-bg);
+  filter: none;
+}
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-text);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  background: var(--disabled-bg);
+  border-color: var(--border);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+  filter: none;
+}
+
+.btn-small {
+  min-height: 2rem;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.9rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.05rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.badge-admin { background: var(--danger-bg); color: var(--danger); }
+.badge-technician { background: var(--info-bg); color: var(--info); }
+.badge-employee { background: var(--success-bg); color: var(--success); }
+.badge-active { background: var(--success-bg); color: var(--success); }
+.badge-inactive { background: var(--neutral-bg); color: var(--neutral); }
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.empty-state {
+  text-align: center;
+}
+
+/* Users filter form: equal-height controls on one baseline */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+}
+
+.filters .field {
+  flex: 1 1 11rem;
+  margin-bottom: 0;
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 2.5rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+dl.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
+}
+
+dl.details dt {
+  color: var(--muted);
+}
+
+dl.details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pager {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem 0.25rem;
+  margin: 0 0 1.25rem;
+}
+
+legend {
+  font-weight: 600;
+  padding: 0 0.4rem;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.checkbox {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Form controls (FormField, CheckboxField and the filter form) */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field .checkbox label {
+  font-weight: normal;
+}
+
+input:not([type='checkbox']),
+select {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  height: 2.5rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.field input:not([type='checkbox']),
+.field select {
+  width: 100%;
+}
+
+input[aria-invalid='true'],
+select[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.error {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--danger);
+}
+
+.error::before {
+  content: '\26A0\FE0E\00a0' / '';
+}
+
+.required-hint {
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 40rem) {
+  main {
+    padding-top: 1rem;
+  }
+
+  /* Stacked table: each row is a block and each cell shows its column name. */
+  table.stack,
+  table.stack tbody,
+  table.stack tr,
+  table.stack td {
+    display: block;
+  }
+
+  table.stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  table.stack tr {
+    margin-bottom: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  table.stack td {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border);
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  table.stack td:last-child {
+    border-bottom: 0;
+  }
+
+  table.stack td::before {
+    content: attr(data-label);
+    flex: 0 0 6rem;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-align: left;
+  }
+
+  dl.details {
+    grid-template-columns: 1fr;
+  }
+}

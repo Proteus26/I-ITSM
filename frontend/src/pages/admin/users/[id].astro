@@ -1,0 +1,176 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import FormField from '../../../components/FormField.astro';
+import CheckboxField from '../../../components/CheckboxField.astro';
+import Alert from '../../../components/Alert.astro';
+import RoleBadge from '../../../components/RoleBadge.astro';
+import StatusBadge from '../../../components/StatusBadge.astro';
+import { backendFor } from '../../../lib/backend';
+import { formErrorState, formatDate, formString, confirmMismatch, LEVEL_OPTIONS, parseActive } from '../../../lib/forms';
+import { handleLoadError } from '../../../lib/loadError';
+import { buildUserPatch, type UserForm } from '../../../lib/userPatch';
+import type { UserResponse } from '../../../lib/types';
+
+const idParam = Astro.params.id ?? '';
+if (!/^\d{1,15}$/.test(idParam)) return Astro.rewrite('/404');
+const id = Number(idParam);
+const api = backendFor(Astro.cookies);
+
+const NOTICES: Record<string, string> = { created: 'User created.', updated: 'Changes saved.', reset: 'Password reset.' };
+const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
+
+let user: UserResponse | null = null;
+let error: string | null = null;
+try {
+  user = await api.getUser(id);
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+let fieldErrors: Record<string, string> = {};
+let resetErrors: Record<string, string> = {};
+let shown: UserForm = {
+  fullName: user?.fullName ?? '',
+  email: user?.email ?? '',
+  department: user?.department ?? '',
+  level: user?.technician?.level ?? 'L1',
+  maxActiveIncidents: String(user?.technician?.maxActiveIncidents ?? ''),
+  available: user?.technician?.available ?? false,
+  skills: (user?.technician?.skills ?? []).join(', '),
+};
+
+const isSelf = !!user && Astro.locals.user?.id === user.id;
+
+if (user && Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = formString(form, 'intent');
+  try {
+    if (intent === 'set-active') {
+      // Apply exactly the state the admin saw on the button, so a double submit or stale page cannot flip it back.
+      const wanted = parseActive(formString(form, 'active'));
+      if (wanted === undefined) {
+        error = 'Invalid request.';
+        Astro.response.status = 400;
+      } else if (isSelf && !wanted) {
+        error = 'You cannot deactivate your own account.';
+        Astro.response.status = 400;
+      } else {
+        await api.updateUser(id, { active: wanted });
+        return Astro.redirect(`/admin/users/${id}?notice=updated`);
+      }
+    } else if (intent === 'reset-password') {
+      const pw = formString(form, 'newPassword', false);
+      const mismatch = confirmMismatch(pw, formString(form, 'confirmPassword', false));
+      if (mismatch) {
+        resetErrors = { confirmPassword: mismatch };
+        Astro.response.status = 400;
+      } else {
+        await api.resetPassword(id, pw);
+        return Astro.redirect(`/admin/users/${id}?notice=reset`);
+      }
+    } else if (intent === 'update') {
+      shown = {
+        fullName: formString(form, 'fullName'),
+        email: formString(form, 'email'),
+        department: formString(form, 'department'),
+        level: formString(form, 'level'),
+        maxActiveIncidents: formString(form, 'maxActiveIncidents'),
+        available: form.get('available') !== null,
+        skills: formString(form, 'skills'),
+      };
+      const { patch, fieldErrors: invalid } = buildUserPatch(user, shown);
+      if (Object.keys(invalid).length > 0) {
+        fieldErrors = invalid;
+        error = 'Please fix the highlighted fields.';
+        Astro.response.status = 400;
+      } else if (Object.keys(patch).length === 0) {
+        return Astro.redirect(`/admin/users/${id}`);
+      } else {
+        await api.updateUser(id, patch);
+        return Astro.redirect(`/admin/users/${id}?notice=updated`);
+      }
+    } else {
+      error = 'Unknown action.';
+      Astro.response.status = 400;
+    }
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    const state = formErrorState(r);
+    if (form.get('intent') === 'reset-password') resetErrors = state.fieldErrors;
+    else fieldErrors = state.fieldErrors;
+    error = state.message;
+    Astro.response.status = r.status;
+  }
+}
+---
+
+<Layout title={user ? `${user.fullName} · I-ITSM` : 'User · I-ITSM'}>
+  <p><a href="/admin/users">&larr; Users</a></p>
+  {user && <h1>{user.fullName} <RoleBadge role={user.role} /></h1>}
+  {notice && <Alert kind="success">{notice}</Alert>}
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    user && (
+      <>
+        <section class="card card-md">
+          <h2>Status</h2>
+          <p>
+            <StatusBadge active={user.active} /> <span class="muted">Created {formatDate(user.createdAt)}.</span>
+          </p>
+          {
+            isSelf ? (
+              <p class="muted">You cannot deactivate your own account.</p>
+            ) : (
+              <form
+                method="post"
+                onsubmit={user.active ? "return confirm('Deactivate this user? They will be signed out immediately.')" : undefined}
+              >
+                <input type="hidden" name="intent" value="set-active" />
+                <input type="hidden" name="active" value={String(!user.active)} />
+                <button class={user.active ? 'btn btn-danger' : 'btn'} type="submit">{user.active ? 'Deactivate' : 'Activate'}</button>
+              </form>
+            )
+          }
+        </section>
+
+        <section class="card card-md">
+          <h2>Details</h2>
+          <form method="post">
+            <p class="hint required-hint">* required</p>
+            <input type="hidden" name="intent" value="update" />
+            <FormField name="fullName" label="Full name" value={shown.fullName} error={fieldErrors.fullName} required maxlength={255} />
+            <FormField name="email" label="Email" type="email" value={shown.email} error={fieldErrors.email} autocomplete="off" required />
+            {user.role === 'EMPLOYEE' && <FormField name="department" label="Department" value={shown.department} error={fieldErrors.department} maxlength={255} />}
+            {
+              user.role === 'TECHNICIAN' && (
+                <>
+                  <FormField name="level" label="Level" value={shown.level} error={fieldErrors.level} options={LEVEL_OPTIONS} />
+                  <FormField name="maxActiveIncidents" label="Max active incidents" type="number" min={1} value={shown.maxActiveIncidents} error={fieldErrors.maxActiveIncidents} />
+                  <FormField name="skills" label="Skills" value={shown.skills} error={fieldErrors.skills} hint="Comma-separated category codes." />
+                  <CheckboxField name="available" label="Available for assignment" checked={shown.available} error={fieldErrors.available} />
+                </>
+              )
+            }
+            <button class="btn" type="submit">Save changes</button>
+          </form>
+        </section>
+
+        <section class="card card-md">
+          <h2>Reset password</h2>
+          <form method="post">
+            <p class="hint required-hint">* required</p>
+            <input type="hidden" name="intent" value="reset-password" />
+            <FormField name="newPassword" label="New password" type="password" error={resetErrors.newPassword} hint="8 to 72 characters." autocomplete="new-password" required />
+            <FormField name="confirmPassword" label="Confirm new password" type="password" error={resetErrors.confirmPassword} autocomplete="new-password" required />
+            <button class="btn btn-secondary" type="submit">Reset password</button>
+          </form>
+        </section>
+      </>
+    )
+  }
+</Layout>

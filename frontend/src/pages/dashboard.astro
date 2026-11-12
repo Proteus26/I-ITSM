@@ -1,0 +1,54 @@
+---
+import Layout from '../layouts/Layout.astro';
+import RoleBadge from '../components/RoleBadge.astro';
+import { levelLabel } from '../lib/forms';
+import { loginUrl } from '../lib/redirect';
+
+// The middleware guarantees a user on /dashboard (see ROUTE_RULES in src/lib/access.ts); this keeps the types honest.
+const user = Astro.locals.user;
+if (!user) return Astro.redirect(loginUrl(Astro.url.pathname + Astro.url.search));
+const tech = user.technician;
+---
+
+<Layout title="Dashboard · I-ITSM">
+  <h1>Hello, {user.fullName}</h1>
+  <p>You are signed in as <RoleBadge role={user.role} />.</p>
+
+  {
+    user.role === 'EMPLOYEE' && (
+      <section class="card">
+        <h2>My incidents</h2>
+        <p class="muted">You have no incidents yet. Incident reporting is coming soon.</p>
+      </section>
+    )
+  }
+  {
+    user.role === 'TECHNICIAN' && (
+      <section class="card">
+        <h2>Assigned incidents</h2>
+        <p class="muted">No incidents are assigned to you. Incident assignment is coming soon.</p>
+      </section>
+    )
+  }
+  {
+    user.role === 'ADMIN' && (
+      <section class="card">
+        <h2>Administration</h2>
+        <p><a href="/admin/users">Manage users</a></p>
+      </section>
+    )
+  }
+  {
+    tech && (
+      <section class="card">
+        <h2>Technician profile</h2>
+        <dl class="details">
+          <dt>Level</dt><dd>{levelLabel(tech.level)}</dd>
+          <dt>Max active incidents</dt><dd>{tech.maxActiveIncidents}</dd>
+          <dt>Available</dt><dd>{tech.available ? 'Yes' : 'No'}</dd>
+          <dt>Skills</dt><dd>{tech.skills.length ? tech.skills.join(', ') : 'None'}</dd>
+        </dl>
+      </section>
+    )
+  }
+</Layout>

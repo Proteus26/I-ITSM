@@ -1,8 +1,13 @@
 ---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Alert from '../components/Alert.astro';
+
 interface Props {
   title?: string;
 }
 const { title = 'I-ITSM' } = Astro.props;
+const { user, backendDown } = Astro.locals;
 ---
 
 <html lang="en">
@@ -14,34 +19,11 @@ const { title = 'I-ITSM' } = Astro.props;
     <title>{title}</title>
   </head>
   <body>
-    <header>
-      <strong>I-ITSM</strong>
-      <span>Intelligent IT Service Management</span>
-    </header>
-    <main>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <Nav user={user} />
+    <main id="main" tabindex="-1">
+      {backendDown && <Alert kind="warning">The server could not be reached, so your sign-in status could not be checked.</Alert>}
       <slot />
     </main>
   </body>
 </html>
-
-<style is:global>
-  :root {
-    font-family: system-ui, sans-serif;
-    color-scheme: light dark;
-  }
-  body {
-    margin: 0;
-  }
-  header {
-    display: flex;
-    gap: 1rem;
-    align-items: baseline;
-    padding: 1rem 2rem;
-    border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
-  }
-  main {
-    padding: 2rem;
-    max-width: 960px;
-    margin: 0 auto;
-  }
-</style>

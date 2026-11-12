@@ -1,0 +1,75 @@
+---
+import Layout from '../layouts/Layout.astro';
+import FormField from '../components/FormField.astro';
+import Alert from '../components/Alert.astro';
+import RoleBadge from '../components/RoleBadge.astro';
+import { backendFor } from '../lib/backend';
+import { ApiError } from '../lib/errors';
+import { loginUrl } from '../lib/redirect';
+import { confirmMismatch, formErrorState, formatDate, formString, levelLabel } from '../lib/forms';
+
+// The middleware guarantees a user on /account (see ROUTE_RULES in src/lib/access.ts); this keeps the types honest.
+const user = Astro.locals.user;
+if (!user) return Astro.redirect(loginUrl(Astro.url.pathname + Astro.url.search));
+
+let error: string | null = null;
+let fieldErrors: Record<string, string> = {};
+const changed = Astro.url.searchParams.get('changed') === '1';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const currentPassword = formString(form, 'currentPassword', false);
+  const newPassword = formString(form, 'newPassword', false);
+  const mismatch = confirmMismatch(newPassword, formString(form, 'confirmPassword', false));
+  if (mismatch) {
+    fieldErrors = { confirmPassword: mismatch };
+    Astro.response.status = 400;
+  } else {
+    try {
+      await backendFor(Astro.cookies).changePassword({ currentPassword, newPassword });
+      return Astro.redirect('/account?changed=1');
+    } catch (e) {
+      if (!(e instanceof ApiError)) throw e;
+      ({ message: error, fieldErrors } = formErrorState(e));
+      Astro.response.status = e.status;
+    }
+  }
+}
+const tech = user.technician;
+---
+
+<Layout title="Account · I-ITSM">
+  <h1>Account</h1>
+
+  <section class="card">
+    <h2>Profile</h2>
+    <dl class="details">
+      <dt>Name</dt><dd>{user.fullName}</dd>
+      <dt>Email</dt><dd>{user.email}</dd>
+      <dt>Role</dt><dd><RoleBadge role={user.role} /></dd>
+      {user.department && <><dt>Department</dt><dd>{user.department}</dd></>}
+      {
+        tech && (
+          <>
+            <dt>Level</dt><dd>{levelLabel(tech.level)}</dd>
+            <dt>Skills</dt><dd>{tech.skills.length ? tech.skills.join(', ') : 'None'}</dd>
+          </>
+        )
+      }
+      <dt>Member since</dt><dd>{formatDate(user.createdAt)}</dd>
+    </dl>
+  </section>
+
+  <section class="card card-sm">
+    <h2>Change password</h2>
+    {changed && <Alert kind="success">Your password was changed.</Alert>}
+    {error && <Alert kind="error">{error}</Alert>}
+    <form method="post">
+      <p class="hint required-hint">* required</p>
+      <FormField name="currentPassword" label="Current password" type="password" error={fieldErrors.currentPassword} autocomplete="current-password" required />
+      <FormField name="newPassword" label="New password" type="password" error={fieldErrors.newPassword} hint="8 to 72 characters." autocomplete="new-password" required />
+      <FormField name="confirmPassword" label="Confirm new password" type="password" error={fieldErrors.confirmPassword} autocomplete="new-password" required />
+      <button class="btn" type="submit">Change password</button>
+    </form>
+  </section>
+</Layout>

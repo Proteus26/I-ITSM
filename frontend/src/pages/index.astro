@@ -1,22 +1,47 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import { apiFetch } from '../lib/api';
+import { ApiError } from '../lib/errors';
+import { BackendClient } from '../lib/backend';
+import { formatDateTime } from '../lib/forms';
+import type { Ping } from '../lib/types';
 
-type Ping = { status: string; service: string; time: string };
-
+const { user } = Astro.locals;
 let ping: Ping | null = null;
 let error: string | null = null;
 try {
-  ping = await apiFetch<Ping>('/api/ping');
+  ping = await new BackendClient().ping();
 } catch (e) {
-  error = e instanceof Error ? e.message : String(e);
+  error = e instanceof ApiError ? e.userMessage : 'Unexpected error.';
 }
 ---
 
 <Layout title="I-ITSM">
   <h1>I-ITSM</h1>
-  <p>Base setup is running.</p>
+  <p>Intelligent IT Service Management.</p>
+  <div class="row">
+    {
+      user ? (
+        <a class="btn" href="/dashboard">Go to dashboard</a>
+      ) : (
+        <>
+          <a class="btn" href="/login">Log in</a>
+          <a class="btn btn-secondary" href="/register">Register</a>
+        </>
+      )
+    }
+  </div>
 
   <h2>Backend status</h2>
-  {ping ? <p>✅ {ping.service} is {ping.status} ({ping.time})</p> : <p>❌ Backend unreachable: {error}</p>}
+  {
+    ping ? (
+      <p>
+        {ping.service} is <span class={`badge ${['UP', 'OK'].includes(ping.status.toUpperCase()) ? 'badge-active' : 'badge-inactive'}`}>{ping.status}</span>
+        <span class="muted"> as of {formatDateTime(ping.time)}</span>
+      </p>
+    ) : (
+      <p>
+        <span class="badge badge-inactive">Unreachable</span> <span class="muted">{error}</span>
+      </p>
+    )
+  }
 </Layout>
