@@ -1,0 +1,26 @@
+---
+interface Props {
+  kind?: 'error' | 'success' | 'info' | 'warning';
+  id?: string;
+}
+const { kind = 'info', id } = Astro.props;
+// Errors interrupt screen readers (alert); the rest are polite status messages.
+const role = kind === 'error' ? 'alert' : 'status';
+---
+
+<div class={`alert alert-${kind}`} role={role} id={id}>
+  <slot />
+</div>
+
+<style>
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    margin: 0 0 1rem;
+  }
+  .alert-error { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+  .alert-success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+  .alert-info { background: var(--info-bg); border-color: var(--border); }
+  .alert-warning { background: var(--warn-bg); border-color: var(--border); }
+</style>

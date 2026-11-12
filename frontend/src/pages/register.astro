@@ -1,0 +1,59 @@
+---
+import Layout from '../layouts/Layout.astro';
+import FormField from '../components/FormField.astro';
+import Alert from '../components/Alert.astro';
+import { BackendClient } from '../lib/backend';
+import { ApiError } from '../lib/errors';
+import { confirmMismatch, formErrorState, formString, optional } from '../lib/forms';
+import { startSession } from '../lib/session';
+
+const values = { fullName: '', email: '', department: '' };
+let error: string | null = null;
+let fieldErrors: Record<string, string> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  values.fullName = formString(form, 'fullName');
+  values.email = formString(form, 'email');
+  values.department = formString(form, 'department');
+  const password = formString(form, 'password', false);
+  const confirm = formString(form, 'confirmPassword', false);
+
+  const mismatch = confirmMismatch(password, confirm);
+  if (mismatch) {
+    fieldErrors = { confirmPassword: mismatch };
+    Astro.response.status = 400;
+  } else {
+    const api = new BackendClient();
+    try {
+      await api.register({ email: values.email, fullName: values.fullName, password, department: optional(values.department) });
+      try {
+        startSession(Astro.cookies, await api.login({ email: values.email, password }));
+        return Astro.redirect('/dashboard');
+      } catch {
+        return Astro.redirect('/login?registered=1'); // account exists; automatic login failed
+      }
+    } catch (e) {
+      if (!(e instanceof ApiError)) throw e;
+      ({ message: error, fieldErrors } = formErrorState(e));
+      Astro.response.status = e.status;
+    }
+  }
+}
+---
+
+<Layout title="Register · I-ITSM">
+  <section class="card card-narrow">
+    <h1>Create an account</h1>
+    {error && <Alert kind="error">{error}</Alert>}
+    <form method="post">
+      <FormField name="fullName" label="Full name" value={values.fullName} error={fieldErrors.fullName} autocomplete="name" required maxlength={255} />
+      <FormField name="email" label="Email" type="email" value={values.email} error={fieldErrors.email} autocomplete="email" required />
+      <FormField name="department" label="Department (optional)" value={values.department} error={fieldErrors.department} autocomplete="organization" maxlength={255} />
+      <FormField name="password" label="Password" type="password" error={fieldErrors.password} hint="8 to 72 characters." autocomplete="new-password" required />
+      <FormField name="confirmPassword" label="Confirm password" type="password" error={fieldErrors.confirmPassword} autocomplete="new-password" required />
+      <button class="btn" type="submit">Register</button>
+    </form>
+    <p class="muted">Already registered? <a href="/login">Log in</a></p>
+  </section>
+</Layout>

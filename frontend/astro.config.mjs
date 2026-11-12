@@ -9,4 +9,6 @@ export default defineConfig({
   output: 'server',
   adapter: node({ mode: 'standalone' }),
   server: { host: true, port: 4321 },
+  // CSRF: reject cross-origin form posts to pages (this is the default; do not turn it off).
+  security: { checkOrigin: true },
 });

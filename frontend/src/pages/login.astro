@@ -1,0 +1,45 @@
+---
+import Layout from '../layouts/Layout.astro';
+import FormField from '../components/FormField.astro';
+import Alert from '../components/Alert.astro';
+import { BackendClient } from '../lib/backend';
+import { ApiError } from '../lib/errors';
+import { formString } from '../lib/forms';
+import { safeNext } from '../lib/redirect';
+import { startSession } from '../lib/session';
+
+const REGISTERED_NOTICE = 'Account created, please log in.';
+const next = safeNext(Astro.url.searchParams.get('next'));
+let email = '';
+let error: string | null = null;
+const justRegistered = Astro.url.searchParams.get('registered') === '1';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  email = formString(form, 'email');
+  const password = formString(form, 'password', false);
+  try {
+    const login = await new BackendClient().login({ email, password });
+    startSession(Astro.cookies, login);
+    return Astro.redirect(next);
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e;
+    error = e.status === 400 ? 'Enter a valid email address and your password.' : e.userMessage;
+    Astro.response.status = e.status;
+  }
+}
+---
+
+<Layout title="Log in · I-ITSM">
+  <section class="card card-narrow">
+    <h1>Log in</h1>
+    {justRegistered && !error && <Alert kind="success">{REGISTERED_NOTICE}</Alert>}
+    {error && <Alert kind="error" id="login-error">{error}</Alert>}
+    <form method="post">
+      <FormField name="email" label="Email" type="email" value={email} autocomplete="email" invalid={!!error} describedby="login-error" required />
+      <FormField name="password" label="Password" type="password" autocomplete="current-password" invalid={!!error} describedby="login-error" required />
+      <button class="btn" type="submit">Log in</button>
+    </form>
+    <p class="muted">No account? <a href="/register">Register</a></p>
+  </section>
+</Layout>

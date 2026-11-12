@@ -1,0 +1,18 @@
+---
+import Layout from '../layouts/Layout.astro';
+interface Props {
+  code: number;
+  title: string;
+  message: string;
+}
+const { code, title, message } = Astro.props;
+---
+
+<Layout title={`${code} ${title}`}>
+  <section class="card card-narrow">
+    <p class="muted">Error {code}</p>
+    <h1>{title}</h1>
+    <p>{message}</p>
+    <p><a class="btn" href="/">Back to the home page</a></p>
+  </section>
+</Layout>

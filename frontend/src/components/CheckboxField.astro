@@ -1,0 +1,21 @@
+---
+interface Props {
+  name: string;
+  label: string;
+  checked?: boolean;
+  error?: string | undefined;
+  hint?: string;
+}
+const { name, label, checked = false, error, hint } = Astro.props;
+const id = `f-${name}`;
+const describedBy = [error ? `${id}-error` : null, hint ? `${id}-hint` : null].filter(Boolean).join(' ') || undefined;
+---
+
+<div class="field">
+  <div class="checkbox">
+    <input id={id} name={name} type="checkbox" checked={checked} aria-invalid={error ? 'true' : undefined} aria-describedby={describedBy} />
+    <label for={id}>{label}</label>
+  </div>
+  {hint && <p class="hint" id={`${id}-hint`}>{hint}</p>}
+  {error && <p class="error" id={`${id}-error`}>{error}</p>}
+</div>

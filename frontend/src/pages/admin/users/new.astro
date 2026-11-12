@@ -1,0 +1,95 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import FormField from '../../../components/FormField.astro';
+import Alert from '../../../components/Alert.astro';
+import { backendFor } from '../../../lib/backend';
+import { handleLoadError } from '../../../lib/loadError';
+import { CAPACITY_BOUNDS, confirmMismatch, formErrorState, formString, optional, parseIntField, parseLevel, parseRole, parseSkills } from '../../../lib/forms';
+import { ROLES, TECHNICIAN_LEVELS, type CreateUserRequest } from '../../../lib/types';
+
+const v = { role: 'EMPLOYEE', email: '', fullName: '', department: '', level: 'L1', maxActiveIncidents: '', skills: '' };
+let error: string | null = null;
+let fieldErrors: Record<string, string> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  for (const k of Object.keys(v) as (keyof typeof v)[]) v[k] = formString(form, k);
+  const password = formString(form, 'password', false);
+  const role = parseRole(v.role);
+  const mismatch = confirmMismatch(password, formString(form, 'confirmPassword', false));
+  const capacity = parseIntField(v.maxActiveIncidents, CAPACITY_BOUNDS);
+
+  if (!role) {
+    fieldErrors = { role: 'Choose a role.' };
+    Astro.response.status = 400;
+  } else if (mismatch) {
+    fieldErrors = { confirmPassword: mismatch };
+    Astro.response.status = 400;
+  } else if (role === 'TECHNICIAN' && capacity.error) {
+    fieldErrors = { maxActiveIncidents: capacity.error };
+    error = 'Please fix the highlighted fields.';
+    Astro.response.status = 400;
+  } else {
+    // Only send the fields that apply to the chosen role; the rest are ignored.
+    const req: CreateUserRequest = { role, email: v.email, fullName: v.fullName, password };
+    if (role === 'EMPLOYEE') req.department = optional(v.department);
+    if (role === 'TECHNICIAN') {
+      req.level = parseLevel(v.level);
+      req.maxActiveIncidents = capacity.value;
+      req.skills = parseSkills(v.skills);
+    }
+    try {
+      const created = await backendFor(Astro.cookies).createUser(req);
+      return Astro.redirect(`/admin/users/${created.id}?notice=created`);
+    } catch (e) {
+      const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+      if (r instanceof Response) return r;
+      ({ message: error, fieldErrors } = formErrorState(r));
+      Astro.response.status = r.status;
+    }
+  }
+}
+---
+
+<Layout title="Create user · I-ITSM">
+  <p><a href="/admin/users">&larr; Users</a></p>
+  <section class="card card-md">
+    <h1>Create user</h1>
+    {error && <Alert kind="error">{error}</Alert>}
+    <form method="post" id="create-user">
+      <FormField name="role" label="Role" value={v.role} error={fieldErrors.role} options={ROLES.map((r) => ({ value: r, label: r }))} required />
+      <FormField name="fullName" label="Full name" value={v.fullName} error={fieldErrors.fullName} autocomplete="off" required maxlength={255} />
+      <FormField name="email" label="Email" type="email" value={v.email} error={fieldErrors.email} autocomplete="off" required />
+      <FormField name="password" label="Initial password" type="password" error={fieldErrors.password} hint="8 to 72 characters." autocomplete="new-password" required />
+      <FormField name="confirmPassword" label="Confirm password" type="password" error={fieldErrors.confirmPassword} autocomplete="new-password" required />
+
+      <fieldset data-role="EMPLOYEE">
+        <legend>Employee</legend>
+        <FormField name="department" label="Department" value={v.department} error={fieldErrors.department} maxlength={255} />
+      </fieldset>
+
+      <fieldset data-role="TECHNICIAN">
+        <legend>Technician</legend>
+        <FormField name="level" label="Level" value={v.level} error={fieldErrors.level} options={TECHNICIAN_LEVELS.map((l) => ({ value: l, label: l }))} />
+        <FormField name="maxActiveIncidents" label="Max active incidents" type="number" min={1} value={v.maxActiveIncidents} error={fieldErrors.maxActiveIncidents} hint="Leave blank for the default." />
+        <FormField name="skills" label="Skills" value={v.skills} error={fieldErrors.skills} hint="Comma-separated category codes." />
+      </fieldset>
+
+      <button class="btn" type="submit">Create user</button>
+    </form>
+  </section>
+</Layout>
+
+<script>
+  // Progressive enhancement: show only the fieldset for the chosen role. Without JS all are shown
+  // and the server ignores the fields that do not apply.
+  const form = document.getElementById('create-user');
+  const select = form?.querySelector<HTMLSelectElement>('select[name="role"]');
+  const sync = () => {
+    form?.querySelectorAll<HTMLElement>('fieldset[data-role]').forEach((fs) => {
+      fs.hidden = fs.dataset.role !== select?.value;
+    });
+  };
+  select?.addEventListener('change', sync);
+  sync();
+</script>

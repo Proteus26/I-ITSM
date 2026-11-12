@@ -1,0 +1,6 @@
+---
+import ErrorPage from '../components/ErrorPage.astro';
+Astro.response.status = 503;
+---
+
+<ErrorPage code={503} title="Service unavailable" message="The server could not be reached. Please try again in a moment." />

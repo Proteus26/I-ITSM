@@ -1,0 +1,111 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import Alert from '../../../components/Alert.astro';
+import RoleBadge from '../../../components/RoleBadge.astro';
+import { backendFor } from '../../../lib/backend';
+import { handleLoadError } from '../../../lib/loadError';
+import { formatDate, levelLabel, PAGE_BOUNDS, parseOptionalInt, parseRole } from '../../../lib/forms';
+import { ROLES } from '../../../lib/types';
+
+const params = Astro.url.searchParams;
+const role = parseRole(params.get('role') ?? '');
+const activeParam = params.get('active');
+const active = activeParam === 'true' ? true : activeParam === 'false' ? false : undefined;
+const q = (params.get('q') ?? '').trim();
+const page = parseOptionalInt(params.get('page') ?? '', PAGE_BOUNDS) ?? 0;
+
+let result = null;
+let error: string | null = null;
+try {
+  result = await backendFor(Astro.cookies).listUsers({ role, active, q: q || undefined, page, size: 20 });
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+// A page past the end (e.g. after filtering or deleting): go to the last page, keeping the filters.
+if (result && result.totalPages > 0 && page >= result.totalPages) {
+  return Astro.redirect(pageHref(result.totalPages - 1));
+}
+
+function pageHref(p: number): string {
+  const sp = new URLSearchParams();
+  if (role) sp.set('role', role);
+  if (active !== undefined) sp.set('active', String(active));
+  if (q) sp.set('q', q);
+  sp.set('page', String(p));
+  return `/admin/users?${sp}`;
+}
+---
+
+<Layout title="Users · I-ITSM">
+  <div class="row row-between">
+    <h1>Users</h1>
+    <a class="btn" href="/admin/users/new">Create user</a>
+  </div>
+
+  <form method="get" class="card row" role="search" aria-label="Filter users">
+    <div>
+      <label for="f-q">Search</label><br />
+      <input id="f-q" name="q" type="search" value={q} placeholder="Name or email" />
+    </div>
+    <div>
+      <label for="f-role">Role</label><br />
+      <select id="f-role" name="role">
+        <option value="">All</option>
+        {ROLES.map((r) => <option value={r} selected={r === role}>{r}</option>)}
+      </select>
+    </div>
+    <div>
+      <label for="f-active">Status</label><br />
+      <select id="f-active" name="active">
+        <option value="">All</option>
+        <option value="true" selected={active === true}>Active</option>
+        <option value="false" selected={active === false}>Deactivated</option>
+      </select>
+    </div>
+    <button class="btn" type="submit">Filter</button>
+    <a href="/admin/users">Reset</a>
+  </form>
+
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    result && (
+      <>
+        <p class="muted">{result.totalElements} user(s)</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Technician</th><th>Created</th></tr>
+            </thead>
+            <tbody>
+              {result.content.length === 0 && <tr><td colspan="6">No users match.</td></tr>}
+              {result.content.map((u) => (
+                <tr>
+                  <td><a href={`/admin/users/${u.id}`}>{u.fullName}</a></td>
+                  <td>{u.email}</td>
+                  <td><RoleBadge role={u.role} /></td>
+                  <td>{u.active ? 'Active' : 'Deactivated'}</td>
+                  <td>
+                    {u.technician
+                      ? `${levelLabel(u.technician.level)}${u.technician.skills.length ? ` · ${u.technician.skills.join(', ')}` : ''}`
+                      : u.department ?? ''}
+                  </td>
+                  <td>{formatDate(u.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <nav class="pager" aria-label="Pagination">
+          {result.page > 0 ? <a href={pageHref(result.page - 1)} rel="prev">Previous</a> : <span class="muted">Previous</span>}
+          <span>Page {result.page + 1} of {Math.max(result.totalPages, 1)}</span>
+          {result.page + 1 < result.totalPages ? <a href={pageHref(result.page + 1)} rel="next">Next</a> : <span class="muted">Next</span>}
+        </nav>
+      </>
+    )
+  }
+</Layout>

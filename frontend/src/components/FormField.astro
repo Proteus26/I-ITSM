@@ -1,0 +1,60 @@
+---
+interface Option {
+  value: string;
+  label: string;
+}
+interface Props {
+  name: string;
+  label: string;
+  type?: 'text' | 'email' | 'password' | 'number' | 'search';
+  value?: string | number | null;
+  error?: string | undefined;
+  /** Marks the field invalid without a message of its own (e.g. a login failure shown in an Alert). */
+  invalid?: boolean;
+  /** id of an element (such as that Alert) that describes the problem. */
+  describedby?: string;
+  hint?: string;
+  autocomplete?: string;
+  required?: boolean;
+  /** Renders a <select> instead of an <input>. */
+  options?: Option[];
+  min?: number;
+  max?: number;
+  maxlength?: number;
+  placeholder?: string;
+}
+const { name, label, type = 'text', value = '', error, hint, invalid = false, describedby, autocomplete, required = false, options, min, max, maxlength, placeholder } = Astro.props;
+const id = `f-${name}`;
+const isInvalid = invalid || !!error;
+const describedBy = [error ? `${id}-error` : null, hint ? `${id}-hint` : null, invalid ? describedby : null].filter(Boolean).join(' ') || undefined;
+---
+
+<div class="field">
+  <label for={id}>{label}{required && <span aria-hidden="true"> *</span>}</label>
+  {
+    options ? (
+      <select id={id} name={name} required={required} aria-invalid={isInvalid ? 'true' : undefined} aria-describedby={describedBy}>
+        {options.map((o) => (
+          <option value={o.value} selected={o.value === String(value ?? '')}>{o.label}</option>
+        ))}
+      </select>
+    ) : (
+      <input
+        id={id}
+        name={name}
+        type={type}
+        value={value ?? ''}
+        required={required}
+        autocomplete={autocomplete}
+        min={min}
+        max={max}
+        maxlength={maxlength}
+        placeholder={placeholder}
+        aria-invalid={isInvalid ? 'true' : undefined}
+        aria-describedby={describedBy}
+      />
+    )
+  }
+  {hint && <p class="hint" id={`${id}-hint`}>{hint}</p>}
+  {error && <p class="error" id={`${id}-error`}>{error}</p>}
+</div>

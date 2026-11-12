@@ -1,0 +1,62 @@
+---
+import type { UserResponse } from '../lib/types';
+import RoleBadge from './RoleBadge.astro';
+
+interface Props {
+  user: UserResponse | null;
+}
+const { user } = Astro.props;
+const path = Astro.url.pathname;
+
+// Add a link here when a page for a role is added (keep in sync with ROUTE_RULES in lib/access.ts).
+const links = user
+  ? [
+      { href: '/dashboard', label: 'Dashboard' },
+      { href: '/account', label: 'Account' },
+      ...(user.role === 'ADMIN' ? [{ href: '/admin/users', label: 'Users' }] : []),
+    ]
+  : [
+      { href: '/login', label: 'Login' },
+      { href: '/register', label: 'Register' },
+    ];
+---
+
+<header class="site-header">
+  <a class="brand" href="/">I-ITSM</a>
+  <nav aria-label="Main">
+    <ul>
+      {links.map((l) => (
+        <li><a href={l.href} aria-current={path === l.href || path.startsWith(`${l.href}/`) ? 'page' : undefined}>{l.label}</a></li>
+      ))}
+    </ul>
+  </nav>
+  {
+    user && (
+      <div class="who">
+        <span>{user.fullName}</span>
+        <RoleBadge role={user.role} />
+        <form method="post" action="/logout">
+          <button type="submit" class="btn btn-secondary btn-small">Log out</button>
+        </form>
+      </div>
+    )
+  }
+</header>
+
+<style>
+  .site-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { font-weight: 700; font-size: 1.15rem; text-decoration: none; color: var(--text); }
+  ul { display: flex; gap: 1rem; list-style: none; margin: 0; padding: 0; }
+  nav a { text-decoration: none; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
+  nav a[aria-current='page'] { border-bottom-color: var(--primary); font-weight: 600; }
+  .who { margin-left: auto; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+  .who form { margin: 0; }
+</style>
