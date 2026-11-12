@@ -14,6 +14,26 @@ import type {
   UpdateUserRequest,
   UserResponse,
 } from './types';
+import { ROLES } from './types';
+
+export const DEFAULT_TIMEOUT_MS = 5000;
+
+/** `BACKEND_TIMEOUT_MS` as a positive integer, or the default. */
+export function backendTimeoutMs(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.BACKEND_TIMEOUT_MS);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
+}
+
+function invalidResponse(): ApiError {
+  return new ApiError(502, 'BadGateway', 'Invalid response from server');
+}
+
+/** Minimal runtime check that a backend answer looks like a UserResponse. */
+export function isUserResponse(v: unknown): v is UserResponse {
+  if (typeof v !== 'object' || v === null) return false;
+  const u = v as Record<string, unknown>;
+  return typeof u.id === 'number' && typeof u.email === 'string' && (ROLES as readonly string[]).includes(u.role as string);
+}
 
 /**
  * Typed, server-side client for the Spring Boot API. Construct it with the user's token (or none for
@@ -26,6 +46,7 @@ export class BackendClient {
   constructor(
     private readonly token?: string,
     private readonly baseUrl: string = API_URL,
+    private readonly timeoutMs: number = backendTimeoutMs(),
   ) {}
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -40,29 +61,39 @@ export class BackendClient {
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
         redirect: 'manual',
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch {
+      // network failure, timeout or abort
       throw ApiError.unreachable();
     }
     if (!res.ok) throw await ApiError.fromResponse(res);
     if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+    try {
+      return (await res.json()) as T;
+    } catch {
+      throw invalidResponse();
+    }
   }
 
   ping(): Promise<Ping> {
     return this.request('GET', '/api/ping');
   }
 
-  login(req: LoginRequest): Promise<LoginResponse> {
-    return this.request('POST', '/api/auth/login', req);
+  async login(req: LoginRequest): Promise<LoginResponse> {
+    const res = await this.request<LoginResponse>('POST', '/api/auth/login', req);
+    if (typeof res?.token !== 'string' || !res.token || !isUserResponse(res.user)) throw invalidResponse();
+    return res;
   }
 
   register(req: RegisterRequest): Promise<UserResponse> {
     return this.request('POST', '/api/auth/register', req);
   }
 
-  me(): Promise<UserResponse> {
-    return this.request('GET', '/api/auth/me');
+  async me(): Promise<UserResponse> {
+    const user = await this.request<UserResponse>('GET', '/api/auth/me');
+    if (!isUserResponse(user)) throw invalidResponse();
+    return user;
   }
 
   changePassword(req: ChangePasswordRequest): Promise<void> {

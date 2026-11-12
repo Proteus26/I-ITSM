@@ -1,0 +1,8 @@
+---
+interface Props {
+  active: boolean;
+}
+const { active } = Astro.props;
+---
+
+<span class={`badge ${active ? 'badge-active' : 'badge-inactive'}`}>{active ? 'Active' : 'Deactivated'}</span>

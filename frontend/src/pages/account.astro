@@ -5,10 +5,12 @@ import Alert from '../components/Alert.astro';
 import RoleBadge from '../components/RoleBadge.astro';
 import { backendFor } from '../lib/backend';
 import { ApiError } from '../lib/errors';
+import { loginUrl } from '../lib/redirect';
 import { confirmMismatch, formErrorState, formatDate, formString, levelLabel } from '../lib/forms';
 
-// The middleware guarantees a user on /account (see ROUTE_RULES in src/lib/access.ts).
-const user = Astro.locals.user!;
+// The middleware guarantees a user on /account (see ROUTE_RULES in src/lib/access.ts); this keeps the types honest.
+const user = Astro.locals.user;
+if (!user) return Astro.redirect(loginUrl(Astro.url.pathname + Astro.url.search));
 
 let error: string | null = null;
 let fieldErrors: Record<string, string> = {};
@@ -63,6 +65,7 @@ const tech = user.technician;
     {changed && <Alert kind="success">Your password was changed.</Alert>}
     {error && <Alert kind="error">{error}</Alert>}
     <form method="post">
+      <p class="hint required-hint">* required</p>
       <FormField name="currentPassword" label="Current password" type="password" error={fieldErrors.currentPassword} autocomplete="current-password" required />
       <FormField name="newPassword" label="New password" type="password" error={fieldErrors.newPassword} hint="8 to 72 characters." autocomplete="new-password" required />
       <FormField name="confirmPassword" label="Confirm new password" type="password" error={fieldErrors.confirmPassword} autocomplete="new-password" required />

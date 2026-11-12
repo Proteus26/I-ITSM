@@ -4,11 +4,12 @@ import FormField from '../../../components/FormField.astro';
 import CheckboxField from '../../../components/CheckboxField.astro';
 import Alert from '../../../components/Alert.astro';
 import RoleBadge from '../../../components/RoleBadge.astro';
+import StatusBadge from '../../../components/StatusBadge.astro';
 import { backendFor } from '../../../lib/backend';
-import { formErrorState, formatDate, formString, confirmMismatch } from '../../../lib/forms';
+import { formErrorState, formatDate, formString, confirmMismatch, LEVEL_OPTIONS, parseActive } from '../../../lib/forms';
 import { handleLoadError } from '../../../lib/loadError';
 import { buildUserPatch, type UserForm } from '../../../lib/userPatch';
-import { TECHNICIAN_LEVELS, type UserResponse } from '../../../lib/types';
+import type { UserResponse } from '../../../lib/types';
 
 const idParam = Astro.params.id ?? '';
 if (!/^\d{1,15}$/.test(idParam)) return Astro.rewrite('/404');
@@ -41,13 +42,25 @@ let shown: UserForm = {
   skills: (user?.technician?.skills ?? []).join(', '),
 };
 
+const isSelf = !!user && Astro.locals.user?.id === user.id;
+
 if (user && Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = formString(form, 'intent');
   try {
-    if (intent === 'toggle-active') {
-      await api.updateUser(id, { active: !user.active });
-      return Astro.redirect(`/admin/users/${id}?notice=updated`);
+    if (intent === 'set-active') {
+      // Apply exactly the state the admin saw on the button, so a double submit or stale page cannot flip it back.
+      const wanted = parseActive(formString(form, 'active'));
+      if (wanted === undefined) {
+        error = 'Invalid request.';
+        Astro.response.status = 400;
+      } else if (isSelf && !wanted) {
+        error = 'You cannot deactivate your own account.';
+        Astro.response.status = 400;
+      } else {
+        await api.updateUser(id, { active: wanted });
+        return Astro.redirect(`/admin/users/${id}?notice=updated`);
+      }
     } else if (intent === 'reset-password') {
       const pw = formString(form, 'newPassword', false);
       const mismatch = confirmMismatch(pw, formString(form, 'confirmPassword', false));
@@ -93,7 +106,6 @@ if (user && Astro.request.method === 'POST') {
     Astro.response.status = r.status;
   }
 }
-const isSelf = !!user && Astro.locals.user?.id === user.id;
 ---
 
 <Layout title={user ? `${user.fullName} · I-ITSM` : 'User · I-ITSM'}>
@@ -105,17 +117,21 @@ const isSelf = !!user && Astro.locals.user?.id === user.id;
   {
     user && (
       <>
-        <section class="card">
+        <section class="card card-md">
           <h2>Status</h2>
           <p>
-            This account is <strong>{user.active ? 'active' : 'deactivated'}</strong>. Created {formatDate(user.createdAt)}.
+            <StatusBadge active={user.active} /> <span class="muted">Created {formatDate(user.createdAt)}.</span>
           </p>
           {
             isSelf ? (
               <p class="muted">You cannot deactivate your own account.</p>
             ) : (
-              <form method="post">
-                <input type="hidden" name="intent" value="toggle-active" />
+              <form
+                method="post"
+                onsubmit={user.active ? "return confirm('Deactivate this user? They will be signed out immediately.')" : undefined}
+              >
+                <input type="hidden" name="intent" value="set-active" />
+                <input type="hidden" name="active" value={String(!user.active)} />
                 <button class={user.active ? 'btn btn-danger' : 'btn'} type="submit">{user.active ? 'Deactivate' : 'Activate'}</button>
               </form>
             )
@@ -125,6 +141,7 @@ const isSelf = !!user && Astro.locals.user?.id === user.id;
         <section class="card card-md">
           <h2>Details</h2>
           <form method="post">
+            <p class="hint required-hint">* required</p>
             <input type="hidden" name="intent" value="update" />
             <FormField name="fullName" label="Full name" value={shown.fullName} error={fieldErrors.fullName} required maxlength={255} />
             <FormField name="email" label="Email" type="email" value={shown.email} error={fieldErrors.email} autocomplete="off" required />
@@ -132,7 +149,7 @@ const isSelf = !!user && Astro.locals.user?.id === user.id;
             {
               user.role === 'TECHNICIAN' && (
                 <>
-                  <FormField name="level" label="Level" value={shown.level} error={fieldErrors.level} options={TECHNICIAN_LEVELS.map((l) => ({ value: l, label: l }))} />
+                  <FormField name="level" label="Level" value={shown.level} error={fieldErrors.level} options={LEVEL_OPTIONS} />
                   <FormField name="maxActiveIncidents" label="Max active incidents" type="number" min={1} value={shown.maxActiveIncidents} error={fieldErrors.maxActiveIncidents} />
                   <FormField name="skills" label="Skills" value={shown.skills} error={fieldErrors.skills} hint="Comma-separated category codes." />
                   <CheckboxField name="available" label="Available for assignment" checked={shown.available} error={fieldErrors.available} />
@@ -146,6 +163,7 @@ const isSelf = !!user && Astro.locals.user?.id === user.id;
         <section class="card card-md">
           <h2>Reset password</h2>
           <form method="post">
+            <p class="hint required-hint">* required</p>
             <input type="hidden" name="intent" value="reset-password" />
             <FormField name="newPassword" label="New password" type="password" error={resetErrors.newPassword} hint="8 to 72 characters." autocomplete="new-password" required />
             <FormField name="confirmPassword" label="Confirm new password" type="password" error={resetErrors.confirmPassword} autocomplete="new-password" required />

@@ -17,5 +17,5 @@ const describedBy = [error ? `${id}-error` : null, hint ? `${id}-hint` : null].f
     <label for={id}>{label}</label>
   </div>
   {hint && <p class="hint" id={`${id}-hint`}>{hint}</p>}
-  {error && <p class="error" id={`${id}-error`}>{error}</p>}
+  {error && <p class="error" id={`${id}-error`}><span class="sr-only">Error: </span>{error}</p>}
 </div>

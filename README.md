@@ -33,9 +33,12 @@ CS F213 / MAC F212 OOP course project (Semester I, 2026–27). The brief is in
 │   ├── src/middleware.ts    Session lookup (Astro.locals.user) and route protection
 │   ├── src/pages/           Routes; src/pages/api/[...path].ts proxies /api/** to the backend
 │   ├── src/layouts/
-│   ├── src/components/      Nav, FormField, Alert, RoleBadge, ErrorPage
-│   ├── src/lib/             api.ts (API_URL), backend.ts (typed client), types.ts, errors.ts (ApiError),
-│   │                        session.ts (cookie), access.ts (route rules), redirect.ts, csrf.ts, forms.ts
+│   ├── src/components/      Nav, FormField, CheckboxField, Alert, RoleBadge, StatusBadge, ErrorPage
+│   ├── src/lib/             api.ts (API_URL), backend.ts (typed client, timeouts, response checks), types.ts,
+│   │                        errors.ts (ApiError, problem+json), session.ts (cookie), access.ts (route rules),
+│   │                        gate.ts (middleware body), redirect.ts, csrf.ts, proxy.ts (/api proxy path, header and
+│   │                        body rules), loadError.ts (handleLoadError), forms.ts (parsing, labels, formErrorState),
+│   │                        userPatch.ts (admin edit form -> PATCH body)
 │   ├── test/                Vitest unit tests for the pure logic in src/lib
 │   └── Dockerfile
 ├── docs/                    Report, UML, ER diagrams, test cases
@@ -50,7 +53,7 @@ Browser ──► Astro (:4321) ──► /api/** proxy ──► Spring Boot (:
 ```
 
 The browser only talks to the Astro server. Astro pages call the backend server-side
-(`apiFetch` in `src/lib/api.ts`), and client-side code calls same-origin `/api/...`,
+(`backendFor(Astro.cookies)` from `src/lib/backend.ts`), and client-side code calls same-origin `/api/...`,
 which the catch-all route forwards to the backend. One origin means no CORS issues
 and auth cookies just work.
 
@@ -142,6 +145,7 @@ CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull reque
 | `JWT_TTL`              | backend  | `8h`                                     |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | backend | none for `bootRun`; `admin@itsm.local` / `ChangeMe123!` in docker compose |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
+| `BACKEND_TIMEOUT_MS`   | frontend | `5000`; how long a page waits for the backend before treating it as unreachable |
 | `COOKIE_SECURE`        | frontend | `false`; set `true` when served over HTTPS (adds `Secure` to the session cookie) |
 | `DB_PORT`, `BACKEND_PORT`, `FRONTEND_PORT` | docker compose | `5432`, `8080`, `4321` |
 
@@ -235,6 +239,44 @@ class IncidentService(private val currentUser: CurrentUser) {
   Forms are plain HTML forms that `POST` to their own page and are handled in the frontmatter
   (`Astro.request.method === 'POST'`), then redirect (post/redirect/get). They work without JavaScript.
   Browser-side code calls `/api/...`; the proxy adds `Authorization: Bearer` from the cookie.
+- **Adding a page that calls the backend**: four small steps.
+  1. Protect the route: add a line to `ROUTE_RULES` in `src/lib/access.ts` (for example `{ prefix: '/incidents' }`).
+  2. Add a method to `BackendClient` in `src/lib/backend.ts` (and the request/response types in `src/lib/types.ts`).
+  3. Write the page in `src/pages/`: call the client through `backendFor(Astro.cookies)`, pass failures to `handleLoadError`
+     and, for forms, turn them into messages with `formErrorState`.
+  4. Add a link in `src/components/Nav.astro` and a test for any new pure logic in `frontend/test/`.
+
+  ```astro
+  ---
+  // src/pages/incidents/index.astro
+  import Layout from '../../layouts/Layout.astro';
+  import Alert from '../../components/Alert.astro';
+  import { backendFor } from '../../lib/backend';
+  import { handleLoadError } from '../../lib/loadError';
+
+  let incidents = null;
+  let error: string | null = null;
+  try {
+    incidents = await backendFor(Astro.cookies).listIncidents(); // the new BackendClient method
+  } catch (e) {
+    const r = await handleLoadError(e, Astro);
+    if (r instanceof Response) return r; // 404 / 403 / 503 page, or redirect to login
+    error = r.userMessage;
+  }
+  ---
+  <Layout title="Incidents · I-ITSM">
+    <h1>Incidents</h1>
+    {error && <Alert kind="error">{error}</Alert>}
+    {incidents?.content.map((i) => <p>{i.title}</p>)}
+  </Layout>
+  ```
+
+  For a form page, catch the error with `handleLoadError(e, Astro, { inlineServerErrors: true })`, then
+  `const { message, fieldErrors } = formErrorState(r)` and pass `fieldErrors.<name>` to each `FormField`.
+- **Backend failures**: every backend call times out after `BACKEND_TIMEOUT_MS` (default 5000) and is then treated as unreachable;
+  an answer that is not JSON (or a `/me` or login answer that is not a user) becomes a 502 `ApiError`. The `/api` proxy gives the
+  backend 15 seconds (504 on a timeout), forwards only `Accept`, `Accept-Language`, `Content-Type`, `If-None-Match`,
+  `If-Modified-Since` and the `Authorization` header, and rejects request bodies over 1 MiB with a 413.
 - **CSRF**: the cookie is `SameSite=Lax`; Astro's `security.checkOrigin` (kept on in `astro.config.mjs`) rejects cross-origin
   form posts to pages; and the `/api` proxy rejects non-GET/HEAD requests whose `Origin` header differs from its own
   with a 403. The proxy never forwards the browser's `Cookie` header to the backend and never passes back a backend `Set-Cookie`.

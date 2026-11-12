@@ -4,8 +4,8 @@ import FormField from '../../../components/FormField.astro';
 import Alert from '../../../components/Alert.astro';
 import { backendFor } from '../../../lib/backend';
 import { handleLoadError } from '../../../lib/loadError';
-import { CAPACITY_BOUNDS, confirmMismatch, formErrorState, formString, optional, parseIntField, parseLevel, parseRole, parseSkills } from '../../../lib/forms';
-import { ROLES, TECHNICIAN_LEVELS, type CreateUserRequest } from '../../../lib/types';
+import { CAPACITY_BOUNDS, confirmMismatch, formErrorState, formString, LEVEL_OPTIONS, optional, parseIntField, parseLevel, parseRole, parseSkills, ROLE_OPTIONS } from '../../../lib/forms';
+import type { CreateUserRequest } from '../../../lib/types';
 
 const v = { role: 'EMPLOYEE', email: '', fullName: '', department: '', level: 'L1', maxActiveIncidents: '', skills: '' };
 let error: string | null = null;
@@ -57,7 +57,8 @@ if (Astro.request.method === 'POST') {
     <h1>Create user</h1>
     {error && <Alert kind="error">{error}</Alert>}
     <form method="post" id="create-user">
-      <FormField name="role" label="Role" value={v.role} error={fieldErrors.role} options={ROLES.map((r) => ({ value: r, label: r }))} required />
+      <p class="hint required-hint">* required</p>
+      <FormField name="role" label="Role" value={v.role} error={fieldErrors.role} options={ROLE_OPTIONS} required />
       <FormField name="fullName" label="Full name" value={v.fullName} error={fieldErrors.fullName} autocomplete="off" required maxlength={255} />
       <FormField name="email" label="Email" type="email" value={v.email} error={fieldErrors.email} autocomplete="off" required />
       <FormField name="password" label="Initial password" type="password" error={fieldErrors.password} hint="8 to 72 characters." autocomplete="new-password" required />
@@ -70,7 +71,7 @@ if (Astro.request.method === 'POST') {
 
       <fieldset data-role="TECHNICIAN">
         <legend>Technician</legend>
-        <FormField name="level" label="Level" value={v.level} error={fieldErrors.level} options={TECHNICIAN_LEVELS.map((l) => ({ value: l, label: l }))} />
+        <FormField name="level" label="Level" value={v.level} error={fieldErrors.level} options={LEVEL_OPTIONS} />
         <FormField name="maxActiveIncidents" label="Max active incidents" type="number" min={1} value={v.maxActiveIncidents} error={fieldErrors.maxActiveIncidents} hint="Leave blank for the default." />
         <FormField name="skills" label="Skills" value={v.skills} error={fieldErrors.skills} hint="Comma-separated category codes." />
       </fieldset>

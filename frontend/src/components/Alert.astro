@@ -9,6 +9,7 @@ const role = kind === 'error' ? 'alert' : 'status';
 ---
 
 <div class={`alert alert-${kind}`} role={role} id={id}>
+  {kind === 'error' && <span class="sr-only">Error: </span>}
   <slot />
 </div>
 

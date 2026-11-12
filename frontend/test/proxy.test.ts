@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { filterResponseHeaders, proxyTarget } from '../src/lib/proxy';
+import {
+  bufferedBodyTooLarge,
+  buildBackendRequestHeaders,
+  declaredBodyTooLarge,
+  filterResponseHeaders,
+  MAX_BODY_BYTES,
+  proxyTarget,
+  readBodyCapped,
+} from '../src/lib/proxy';
 
 const base = 'http://backend:8080';
 
@@ -89,5 +97,73 @@ describe('filterResponseHeaders', () => {
       return; // not even representable as a header value
     }
     expect(filterResponseHeaders(headers, origin).get('location')).toBeNull();
+  });
+});
+
+describe('buildBackendRequestHeaders', () => {
+  const incoming = new Headers({
+    accept: 'application/json',
+    'accept-language': 'en-GB',
+    'content-type': 'application/json',
+    'if-none-match': '"abc"',
+    'if-modified-since': 'Wed, 01 Jan 2025 00:00:00 GMT',
+    cookie: 'itsm_session=secret',
+    host: 'localhost:4321',
+    origin: 'http://localhost:4321',
+    referer: 'http://localhost:4321/x',
+    'sec-fetch-site': 'same-origin',
+    'sec-fetch-mode': 'cors',
+    'x-forwarded-for': '1.2.3.4',
+    connection: 'keep-alive',
+    'content-length': '12',
+  });
+
+  it('forwards only the allow-listed headers', () => {
+    const out = buildBackendRequestHeaders(incoming, undefined);
+    expect([...out.keys()].sort()).toEqual(['accept', 'accept-language', 'content-type', 'if-modified-since', 'if-none-match']);
+  });
+
+  it('uses the cookie token as Authorization, overriding the client header', () => {
+    const h = new Headers(incoming);
+    h.set('authorization', 'Bearer client');
+    expect(buildBackendRequestHeaders(h, 'cookie-token').get('authorization')).toBe('Bearer cookie-token');
+  });
+
+  it('keeps the client Authorization only when there is no cookie token', () => {
+    const h = new Headers({ authorization: 'Bearer client' });
+    expect(buildBackendRequestHeaders(h, undefined).get('authorization')).toBe('Bearer client');
+    expect(buildBackendRequestHeaders(new Headers(), undefined).has('authorization')).toBe(false);
+  });
+});
+
+describe('body size cap', () => {
+  it('flags a declared Content-Length above 1 MiB', () => {
+    expect(declaredBodyTooLarge(String(MAX_BODY_BYTES))).toBe(false);
+    expect(declaredBodyTooLarge(String(MAX_BODY_BYTES + 1))).toBe(true);
+    expect(declaredBodyTooLarge(null)).toBe(false);
+    expect(declaredBodyTooLarge('abc')).toBe(false);
+  });
+
+  it('flags a buffered body above the cap', () => {
+    expect(bufferedBodyTooLarge(new ArrayBuffer(10), 10)).toBe(false);
+    expect(bufferedBodyTooLarge(new ArrayBuffer(11), 10)).toBe(true);
+  });
+
+  const streamOf = (...chunks: number[]) =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const n of chunks) c.enqueue(new Uint8Array(n).fill(1));
+        c.close();
+      },
+    });
+
+  it('reads a body within the cap', async () => {
+    const out = await readBodyCapped(streamOf(4, 6), 10);
+    expect(out?.byteLength).toBe(10);
+    expect((await readBodyCapped(null, 10))?.byteLength).toBe(0);
+  });
+
+  it('gives up on a body that grows past the cap even without a Content-Length', async () => {
+    expect(await readBodyCapped(streamOf(6, 6), 10)).toBeNull();
   });
 });

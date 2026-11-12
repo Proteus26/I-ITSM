@@ -47,6 +47,7 @@ if (Astro.request.method === 'POST') {
     <h1>Create an account</h1>
     {error && <Alert kind="error">{error}</Alert>}
     <form method="post">
+      <p class="hint required-hint">* required</p>
       <FormField name="fullName" label="Full name" value={values.fullName} error={fieldErrors.fullName} autocomplete="name" required maxlength={255} />
       <FormField name="email" label="Email" type="email" value={values.email} error={fieldErrors.email} autocomplete="email" required />
       <FormField name="department" label="Department (optional)" value={values.department} error={fieldErrors.department} autocomplete="organization" maxlength={255} />

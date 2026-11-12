@@ -19,8 +19,9 @@ const { user, backendDown } = Astro.locals;
     <title>{title}</title>
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
     <Nav user={user} />
-    <main>
+    <main id="main" tabindex="-1">
       {backendDown && <Alert kind="warning">The server could not be reached, so your sign-in status could not be checked.</Alert>}
       <slot />
     </main>

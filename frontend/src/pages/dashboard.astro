@@ -2,9 +2,11 @@
 import Layout from '../layouts/Layout.astro';
 import RoleBadge from '../components/RoleBadge.astro';
 import { levelLabel } from '../lib/forms';
+import { loginUrl } from '../lib/redirect';
 
-// The middleware guarantees a user on /dashboard (see ROUTE_RULES in src/lib/access.ts).
-const user = Astro.locals.user!;
+// The middleware guarantees a user on /dashboard (see ROUTE_RULES in src/lib/access.ts); this keeps the types honest.
+const user = Astro.locals.user;
+if (!user) return Astro.redirect(loginUrl(Astro.url.pathname + Astro.url.search));
 const tech = user.technician;
 ---
 
@@ -16,7 +18,7 @@ const tech = user.technician;
     user.role === 'EMPLOYEE' && (
       <section class="card">
         <h2>My incidents</h2>
-        <p class="muted">My incidents — coming soon.</p>
+        <p class="muted">You have no incidents yet. Incident reporting is coming soon.</p>
       </section>
     )
   }
@@ -24,7 +26,7 @@ const tech = user.technician;
     user.role === 'TECHNICIAN' && (
       <section class="card">
         <h2>Assigned incidents</h2>
-        <p class="muted">Assigned incidents — coming soon.</p>
+        <p class="muted">No incidents are assigned to you. Incident assignment is coming soon.</p>
       </section>
     )
   }

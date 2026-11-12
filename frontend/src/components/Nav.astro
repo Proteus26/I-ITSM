@@ -33,7 +33,7 @@ const links = user
   {
     user && (
       <div class="who">
-        <span>{user.fullName}</span>
+        <span class="who-name">{user.fullName}</span>
         <RoleBadge role={user.role} />
         <form method="post" action="/logout">
           <button type="submit" class="btn btn-secondary btn-small">Log out</button>
@@ -49,7 +49,8 @@ const links = user
     flex-wrap: wrap;
     gap: 0.5rem 1.5rem;
     align-items: center;
-    padding: 0.75rem 1rem;
+    padding: 0.5rem 1rem;
+    min-height: 3.5rem;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
   }
@@ -59,4 +60,13 @@ const links = user
   nav a[aria-current='page'] { border-bottom-color: var(--primary); font-weight: 600; }
   .who { margin-left: auto; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
   .who form { margin: 0; }
+  .who-name { overflow-wrap: anywhere; }
+
+  @media (max-width: 40rem) {
+    .site-header { gap: 0.25rem 1rem; }
+    nav { margin-left: auto; }
+    .who { flex: 1 0 100%; margin-left: 0; flex-wrap: nowrap; padding-top: 0.25rem; border-top: 1px solid var(--border); }
+    .who-name { min-width: 0; }
+    .who form { margin-left: auto; }
+  }
 </style>

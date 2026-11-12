@@ -69,3 +69,31 @@ describe('formErrorState', () => {
     expect(formErrorState(ApiError.unreachable()).message).toBe('Something went wrong on the server. Try again.');
   });
 });
+
+describe('status, plural and date helpers', () => {
+  it('parses only "true" and "false" as the active state', async () => {
+    const { parseActive } = await import('../src/lib/forms');
+    expect(parseActive('true')).toBe(true);
+    expect(parseActive('false')).toBe(false);
+    for (const v of ['', 'TRUE', '1', 'yes', 'null']) expect(parseActive(v)).toBeUndefined();
+  });
+
+  it('pluralises counts', async () => {
+    const { pluralize } = await import('../src/lib/forms');
+    expect(pluralize(0, 'user')).toBe('0 users');
+    expect(pluralize(1, 'user')).toBe('1 user');
+    expect(pluralize(2, 'user')).toBe('2 users');
+  });
+
+  it('formats a date-time in en-GB UTC and passes invalid input through', async () => {
+    const { formatDateTime } = await import('../src/lib/forms');
+    expect(formatDateTime('2026-11-12T21:46:00Z')).toBe('12 Nov 2026, 21:46 UTC');
+    expect(formatDateTime('nope')).toBe('nope');
+  });
+
+  it('offers human labels for roles and levels', async () => {
+    const { ROLE_OPTIONS, LEVEL_OPTIONS } = await import('../src/lib/forms');
+    expect(ROLE_OPTIONS.map((o) => o.label)).toEqual(['Employee', 'Technician', 'Administrator']);
+    expect(LEVEL_OPTIONS.map((o) => o.label)).toEqual(['L1', 'L2', 'Team lead']);
+  });
+});

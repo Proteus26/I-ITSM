@@ -2,9 +2,10 @@
 import Layout from '../../../layouts/Layout.astro';
 import Alert from '../../../components/Alert.astro';
 import RoleBadge from '../../../components/RoleBadge.astro';
+import StatusBadge from '../../../components/StatusBadge.astro';
 import { backendFor } from '../../../lib/backend';
 import { handleLoadError } from '../../../lib/loadError';
-import { formatDate, levelLabel, PAGE_BOUNDS, parseOptionalInt, parseRole } from '../../../lib/forms';
+import { formatDate, levelLabel, PAGE_BOUNDS, parseOptionalInt, parseRole, pluralize, roleLabel } from '../../../lib/forms';
 import { ROLES } from '../../../lib/types';
 
 const params = Astro.url.searchParams;
@@ -30,6 +31,8 @@ if (result && result.totalPages > 0 && page >= result.totalPages) {
   return Astro.redirect(pageHref(result.totalPages - 1));
 }
 
+const filtered = !!role || active !== undefined || !!q;
+
 function pageHref(p: number): string {
   const sp = new URLSearchParams();
   if (role) sp.set('role', role);
@@ -41,33 +44,35 @@ function pageHref(p: number): string {
 ---
 
 <Layout title="Users · I-ITSM">
-  <div class="row row-between">
+  <div class="row-between">
     <h1>Users</h1>
     <a class="btn" href="/admin/users/new">Create user</a>
   </div>
 
-  <form method="get" class="card row" role="search" aria-label="Filter users">
-    <div>
-      <label for="f-q">Search</label><br />
+  <form method="get" class="card filters" role="search" aria-label="Filter users">
+    <div class="field">
+      <label for="f-q">Search</label>
       <input id="f-q" name="q" type="search" value={q} placeholder="Name or email" />
     </div>
-    <div>
-      <label for="f-role">Role</label><br />
+    <div class="field">
+      <label for="f-role">Role</label>
       <select id="f-role" name="role">
         <option value="">All</option>
-        {ROLES.map((r) => <option value={r} selected={r === role}>{r}</option>)}
+        {ROLES.map((r) => <option value={r} selected={r === role}>{roleLabel(r)}</option>)}
       </select>
     </div>
-    <div>
-      <label for="f-active">Status</label><br />
+    <div class="field">
+      <label for="f-active">Status</label>
       <select id="f-active" name="active">
         <option value="">All</option>
         <option value="true" selected={active === true}>Active</option>
         <option value="false" selected={active === false}>Deactivated</option>
       </select>
     </div>
-    <button class="btn" type="submit">Filter</button>
-    <a href="/admin/users">Reset</a>
+    <div class="filter-actions">
+      <button class="btn" type="submit">Filter</button>
+      <a href="/admin/users">Reset</a>
+    </div>
   </form>
 
   {error && <Alert kind="error">{error}</Alert>}
@@ -75,31 +80,45 @@ function pageHref(p: number): string {
   {
     result && (
       <>
-        <p class="muted">{result.totalElements} user(s)</p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Technician</th><th>Created</th></tr>
-            </thead>
-            <tbody>
-              {result.content.length === 0 && <tr><td colspan="6">No users match.</td></tr>}
-              {result.content.map((u) => (
+        <p class="muted">{pluralize(result.totalElements, 'user')}</p>
+        {result.content.length === 0 ? (
+          <div class="card empty-state">
+            <p>{filtered ? 'No users match these filters.' : 'There are no users yet.'}</p>
+            {filtered && <p><a href="/admin/users">Clear filters</a></p>}
+          </div>
+        ) : (
+          <div class="table-wrap" role="region" aria-label="Users" tabindex="0">
+            <table class="stack">
+              <caption class="sr-only">Users</caption>
+              <thead>
                 <tr>
-                  <td><a href={`/admin/users/${u.id}`}>{u.fullName}</a></td>
-                  <td>{u.email}</td>
-                  <td><RoleBadge role={u.role} /></td>
-                  <td>{u.active ? 'Active' : 'Deactivated'}</td>
-                  <td>
-                    {u.technician
-                      ? `${levelLabel(u.technician.level)}${u.technician.skills.length ? ` · ${u.technician.skills.join(', ')}` : ''}`
-                      : u.department ?? ''}
-                  </td>
-                  <td>{formatDate(u.createdAt)}</td>
+                  <th scope="col">Name</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Role</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Technician</th>
+                  <th scope="col">Created</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {result.content.map((u) => (
+                  <tr>
+                    <td data-label="Name"><a href={`/admin/users/${u.id}`}>{u.fullName}</a></td>
+                    <td data-label="Email">{u.email}</td>
+                    <td data-label="Role"><RoleBadge role={u.role} /></td>
+                    <td data-label="Status"><StatusBadge active={u.active} /></td>
+                    <td data-label="Details">
+                      {u.technician
+                        ? `${levelLabel(u.technician.level)}${u.technician.skills.length ? ` · ${u.technician.skills.join(', ')}` : ''}`
+                        : u.department ?? '—'}
+                    </td>
+                    <td data-label="Created">{formatDate(u.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <nav class="pager" aria-label="Pagination">
           {result.page > 0 ? <a href={pageHref(result.page - 1)} rel="prev">Previous</a> : <span class="muted">Previous</span>}
           <span>Page {result.page + 1} of {Math.max(result.totalPages, 1)}</span>

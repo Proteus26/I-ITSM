@@ -2,17 +2,30 @@ import type { APIRoute } from 'astro';
 import { API_URL } from '../../lib/api';
 import { isCrossOriginWrite } from '../../lib/csrf';
 import { problemResponse } from '../../lib/errors';
-import { filterResponseHeaders, proxyTarget } from '../../lib/proxy';
+import {
+  buildBackendRequestHeaders,
+  DEFAULT_PROXY_TIMEOUT_MS,
+  declaredBodyTooLarge,
+  filterResponseHeaders,
+  proxyTarget,
+  readBodyCapped,
+} from '../../lib/proxy';
 import { endSession, readToken } from '../../lib/session';
 
-/** Headers that must not be copied from the browser request to the backend. */
-const DROP_REQUEST_HEADERS = ['host', 'cookie', 'connection', 'content-length'];
+const TOO_LARGE = 'Request body too large.';
+
+/** `PROXY_TIMEOUT_MS` (default 15000) as a positive integer. */
+function proxyTimeoutMs(): number {
+  const n = Number(process.env.PROXY_TIMEOUT_MS);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_PROXY_TIMEOUT_MS;
+}
 
 /**
  * Same-origin proxy: browser -> /api/** (Astro) -> backend /api/**.
  * The browser never sees the JWT: it is in an httpOnly cookie, and this route turns it into an
  * `Authorization: Bearer` header. The browser's Cookie header is never forwarded to the backend,
  * and only allow-listed backend response headers are passed back (never `Set-Cookie`).
+ * Request headers are allow-listed too, bodies are capped at 1 MiB and the backend call times out.
  */
 export const ALL: APIRoute = async ({ request, params, cookies }) => {
   const incoming = new URL(request.url);
@@ -24,23 +37,31 @@ export const ALL: APIRoute = async ({ request, params, cookies }) => {
   const target = proxyTarget(params.path, incoming.search);
   if (!target) return problemResponse(400, 'BadRequest', 'Invalid API path.');
 
-  const headers = new Headers(request.headers);
-  for (const h of DROP_REQUEST_HEADERS) headers.delete(h);
   const token = readToken(cookies);
-  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const headers = buildBackendRequestHeaders(request.headers, token);
 
-  const hasBody = !['GET', 'HEAD'].includes(request.method);
+  let body: Uint8Array<ArrayBuffer> | undefined;
+  if (!['GET', 'HEAD'].includes(request.method)) {
+    if (declaredBodyTooLarge(request.headers.get('content-length'))) return problemResponse(413, 'PayloadTooLarge', TOO_LARGE);
+    const buffered = await readBodyCapped(request.body);
+    if (buffered === null) return problemResponse(413, 'PayloadTooLarge', TOO_LARGE);
+    body = buffered;
+  }
+
   let res: Response;
   try {
     res = await fetch(target, {
       method: request.method,
       headers,
-      body: hasBody ? await request.arrayBuffer() : undefined,
+      body,
       redirect: 'manual',
+      signal: AbortSignal.timeout(proxyTimeoutMs()),
     });
   } catch (e) {
+    const timedOut = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
     // Log the real cause on the server only (never the token); the browser gets a generic message.
-    console.error(`[api proxy] backend unreachable for ${request.method} ${target.pathname}:`, e instanceof Error ? e.message : e);
+    console.error(`[api proxy] backend ${timedOut ? 'timed out' : 'unreachable'} for ${request.method} ${target.pathname}:`, e instanceof Error ? e.message : e);
+    if (timedOut) return problemResponse(504, 'GatewayTimeout', 'The server took too long to respond. Please try again later.');
     return problemResponse(502, 'BadGateway', 'The server is unreachable. Please try again later.');
   }
 

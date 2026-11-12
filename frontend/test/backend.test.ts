@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BackendClient } from '../src/lib/backend';
+import { BackendClient, backendTimeoutMs } from '../src/lib/backend';
 import { ApiError } from '../src/lib/errors';
 
 const base = 'http://backend:8080';
@@ -13,6 +13,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const jsonRes = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const user = { id: 1, email: 'a@b.c', fullName: 'A', role: 'ADMIN', active: true, createdAt: '2026-01-01T00:00:00Z' };
 const call = () => {
   const [url, init] = fetchMock.mock.calls[0]!;
   return { url: String(url), init: init as RequestInit & { headers: Record<string, string> } };
@@ -20,8 +21,8 @@ const call = () => {
 
 describe('BackendClient requests', () => {
   it('builds a GET with the bearer token and no body', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ id: 1 }));
-    await expect(new BackendClient('tok', base).me()).resolves.toEqual({ id: 1 });
+    fetchMock.mockResolvedValue(jsonRes(user));
+    await expect(new BackendClient('tok', base).me()).resolves.toEqual(user);
     const { url, init } = call();
     expect(url).toBe(`${base}/api/auth/me`);
     expect(init.method).toBe('GET');
@@ -29,10 +30,11 @@ describe('BackendClient requests', () => {
     expect(init.headers.Accept).toBe('application/json');
     expect(init.headers['Content-Type']).toBeUndefined();
     expect(init.body).toBeUndefined();
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('sends JSON bodies with a content type, and no Authorization without a token', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ token: 't' }));
+    fetchMock.mockResolvedValue(jsonRes({ token: 't', tokenType: 'Bearer', expiresAt: 'x', user }));
     await new BackendClient(undefined, base).login({ email: 'a@b.c', password: 'pw' });
     const { url, init } = call();
     expect(url).toBe(`${base}/api/auth/login`);
@@ -104,5 +106,69 @@ describe('BackendClient responses', () => {
     expect(e).toBeInstanceOf(ApiError);
     expect(e.unreachable).toBe(true);
     expect(e.status).toBe(502);
+  });
+});
+
+describe('BackendClient timeouts', () => {
+  it('aborts a request that exceeds the timeout and reports it as unreachable', async () => {
+    fetchMock.mockImplementation(
+      (_url: unknown, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal!.addEventListener('abort', () => reject(init.signal!.reason));
+        }),
+    );
+    const e = await new BackendClient('t', base, 20).me().catch((x) => x);
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e.unreachable).toBe(true);
+  });
+
+  it('maps an AbortError to unreachable', async () => {
+    fetchMock.mockRejectedValue(new DOMException('aborted', 'AbortError'));
+    const e = await new BackendClient('t', base).ping().catch((x) => x);
+    expect(e.unreachable).toBe(true);
+  });
+
+  it('reads BACKEND_TIMEOUT_MS, falling back to 5000 for missing or invalid values', () => {
+    expect(backendTimeoutMs({})).toBe(5000);
+    expect(backendTimeoutMs({ BACKEND_TIMEOUT_MS: '1200' })).toBe(1200);
+    expect(backendTimeoutMs({ BACKEND_TIMEOUT_MS: 'abc' })).toBe(5000);
+    expect(backendTimeoutMs({ BACKEND_TIMEOUT_MS: '-3' })).toBe(5000);
+    expect(backendTimeoutMs({ BACKEND_TIMEOUT_MS: '0' })).toBe(5000);
+  });
+});
+
+describe('BackendClient response validation', () => {
+  const html = () => new Response('<html>hi</html>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+
+  it('turns a 200 with a non-JSON body into a 502 ApiError', async () => {
+    fetchMock.mockResolvedValue(html());
+    const e = await new BackendClient('t', base).ping().catch((x) => x);
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e.status).toBe(502);
+    expect(e.detail).toBe('Invalid response from server');
+    expect(e.isServerError).toBe(true);
+  });
+
+  it('rejects an HTML 200 from me() and login()', async () => {
+    fetchMock.mockImplementation(async () => html());
+    expect(await new BackendClient('t', base).me().catch((x) => x.status)).toBe(502);
+    expect(await new BackendClient(undefined, base).login({ email: 'a', password: 'b' }).catch((x) => x.status)).toBe(502);
+  });
+
+  it.each([[{}], [{ ...user, id: '1' }], [{ ...user, email: 5 }], [{ ...user, role: 'ROOT' }], [null], [[]]])(
+    'rejects a malformed /me body %j',
+    async (body) => {
+      fetchMock.mockResolvedValue(jsonRes(body));
+      const e = await new BackendClient('t', base).me().catch((x) => x);
+      expect(e).toBeInstanceOf(ApiError);
+      expect(e.status).toBe(502);
+    },
+  );
+
+  it('rejects a login response without a token or with a bad user', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ tokenType: 'Bearer', expiresAt: 'x', user }));
+    expect(await new BackendClient(undefined, base).login({ email: 'a', password: 'b' }).catch((x) => x.status)).toBe(502);
+    fetchMock.mockResolvedValue(jsonRes({ token: 't', user: {} }));
+    expect(await new BackendClient(undefined, base).login({ email: 'a', password: 'b' }).catch((x) => x.status)).toBe(502);
   });
 });

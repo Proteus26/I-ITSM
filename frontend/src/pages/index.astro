@@ -2,6 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 import { ApiError } from '../lib/errors';
 import { BackendClient } from '../lib/backend';
+import { formatDateTime } from '../lib/forms';
 import type { Ping } from '../lib/types';
 
 const { user } = Astro.locals;
@@ -17,18 +18,30 @@ try {
 <Layout title="I-ITSM">
   <h1>I-ITSM</h1>
   <p>Intelligent IT Service Management.</p>
-  <p>
+  <div class="row">
     {
       user ? (
         <a class="btn" href="/dashboard">Go to dashboard</a>
       ) : (
         <>
-          <a class="btn" href="/login">Log in</a> <a class="btn btn-secondary" href="/register">Register</a>
+          <a class="btn" href="/login">Log in</a>
+          <a class="btn btn-secondary" href="/register">Register</a>
         </>
       )
     }
-  </p>
+  </div>
 
   <h2>Backend status</h2>
-  {ping ? <p>✅ {ping.service} is {ping.status} ({ping.time})</p> : <p>❌ Backend unreachable: {error}</p>}
+  {
+    ping ? (
+      <p>
+        {ping.service} is <span class={`badge ${['UP', 'OK'].includes(ping.status.toUpperCase()) ? 'badge-active' : 'badge-inactive'}`}>{ping.status}</span>
+        <span class="muted"> as of {formatDateTime(ping.time)}</span>
+      </p>
+    ) : (
+      <p>
+        <span class="badge badge-inactive">Unreachable</span> <span class="muted">{error}</span>
+      </p>
+    )
+  }
 </Layout>

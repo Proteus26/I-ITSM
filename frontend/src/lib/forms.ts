@@ -70,6 +70,24 @@ export function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 10);
 }
 
+/** "true" / "false" (as sent by a hidden form field) -> boolean; anything else -> undefined. */
+export function parseActive(input: string): boolean | undefined {
+  return input === 'true' ? true : input === 'false' ? false : undefined;
+}
+
+/** "1 user", "2 users". */
+export function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+const DATE_TIME = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
+
+/** "12 Nov 2026, 21:46 UTC"; the input itself when it is not a valid date. */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : `${DATE_TIME.format(d)} UTC`;
+}
+
 export function roleLabel(role: Role): string {
   return { EMPLOYEE: 'Employee', TECHNICIAN: 'Technician', ADMIN: 'Administrator' }[role];
 }
@@ -77,6 +95,10 @@ export function roleLabel(role: Role): string {
 export function levelLabel(level: TechnicianLevel): string {
   return { L1: 'L1', L2: 'L2', TEAM_LEAD: 'Team lead' }[level];
 }
+
+/** `<option>` lists for selects, with human labels. */
+export const ROLE_OPTIONS = ROLES.map((r) => ({ value: r, label: roleLabel(r) }));
+export const LEVEL_OPTIONS = TECHNICIAN_LEVELS.map((l) => ({ value: l, label: levelLabel(l) }));
 
 export interface FormErrorState {
   /** Summary for the Alert at the top of the form. */

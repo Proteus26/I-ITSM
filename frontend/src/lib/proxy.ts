@@ -70,3 +70,66 @@ export function filterResponseHeaders(headers: Headers, backendOrigin: string = 
   }
   return out;
 }
+
+const ALLOWED_REQUEST_HEADERS = ['accept', 'accept-language', 'content-type', 'if-none-match', 'if-modified-since'];
+
+/**
+ * Headers sent to the backend: only an allow-list of the browser's (never cookie, host, origin,
+ * referer or sec-fetch-*), plus `Authorization: Bearer <token>` from the session cookie. Without a
+ * session token the client's own Authorization header is kept.
+ */
+export function buildBackendRequestHeaders(incoming: Headers, token: string | undefined): Headers {
+  const out = new Headers();
+  for (const name of ALLOWED_REQUEST_HEADERS) {
+    const v = incoming.get(name);
+    if (v !== null) out.set(name, v);
+  }
+  if (token) {
+    out.set('Authorization', `Bearer ${token}`);
+  } else {
+    const auth = incoming.get('authorization');
+    if (auth !== null) out.set('Authorization', auth);
+  }
+  return out;
+}
+
+/** Largest request body the proxy buffers and forwards. */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
+/** True when a declared Content-Length is above the cap (invalid values are left to the buffered check). */
+export function declaredBodyTooLarge(contentLength: string | null, max: number = MAX_BODY_BYTES): boolean {
+  if (contentLength === null || !/^\d+$/.test(contentLength.trim())) return false;
+  return Number(contentLength.trim()) > max;
+}
+
+/** True when an already buffered body is above the cap. */
+export function bufferedBodyTooLarge(body: ArrayBuffer, max: number = MAX_BODY_BYTES): boolean {
+  return body.byteLength > max;
+}
+
+/** Buffers a request body, giving up (null) as soon as it grows past `max` bytes. */
+export async function readBodyCapped(body: ReadableStream<Uint8Array> | null, max: number = MAX_BODY_BYTES): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!body) return new Uint8Array(0);
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
+
+export const DEFAULT_PROXY_TIMEOUT_MS = 15000;

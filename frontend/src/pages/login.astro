@@ -36,6 +36,7 @@ if (Astro.request.method === 'POST') {
     {justRegistered && !error && <Alert kind="success">{REGISTERED_NOTICE}</Alert>}
     {error && <Alert kind="error" id="login-error">{error}</Alert>}
     <form method="post">
+      <p class="hint required-hint">* required</p>
       <FormField name="email" label="Email" type="email" value={email} autocomplete="email" invalid={!!error} describedby="login-error" required />
       <FormField name="password" label="Password" type="password" autocomplete="current-password" invalid={!!error} describedby="login-error" required />
       <button class="btn" type="submit">Log in</button>
