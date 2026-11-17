@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.MissingServletRequestParameterException
@@ -57,6 +58,13 @@ class GlobalExceptionHandler {
     fun handleMissingParameter(ex: MissingServletRequestParameterException): ProblemDetail =
         ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Missing required parameter '${ex.parameterName}'").apply {
             title = "Bad Request"
+        }
+
+    /** Two people saved the same versioned entity (for example an incident) at once; the loser must reload. */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException::class)
+    fun handleOptimisticLock(ex: ObjectOptimisticLockingFailureException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "The record was changed by someone else. Reload and try again.").apply {
+            title = "ConcurrentUpdate"
         }
 
     /** Covers @PreAuthorize denials (AuthorizationDeniedException is a subclass). */
