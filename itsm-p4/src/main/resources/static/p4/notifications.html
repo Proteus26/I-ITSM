@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notifications</title>
+  <link rel="stylesheet" href="p4.css">
+</head>
+<body>
+<div id="p4-header"></div>
+<main>
+  <div class="row">
+    <h1>Notifications</h1>
+    <span class="spacer"></span>
+    <label style="flex-direction:row;align-items:center"><input type="checkbox" id="unreadOnly"> Unread only</label>
+    <button class="secondary" id="markAll">Mark all as read</button>
+  </div>
+  <div class="card" id="list">Loading…</div>
+  <div class="row">
+    <button class="secondary" id="prev">Previous</button>
+    <span class="muted" id="pageInfo"></span>
+    <button class="secondary" id="next">Next</button>
+  </div>
+</main>
+<script src="p4.js"></script>
+<script>
+  ITSM.mountHeader("notifications.html");
+  let page = 0, totalPages = 1;
+
+  async function load() {
+    const list = document.getElementById("list");
+    try {
+      const unread = document.getElementById("unreadOnly").checked;
+      const res = await ITSM.api("/api/notifications?" + ITSM.qs({ unread, page, size: 15 }));
+      totalPages = Math.max(res.totalPages, 1);
+      document.getElementById("pageInfo").textContent = `Page ${res.page + 1} of ${totalPages}`;
+      list.innerHTML = res.content.length ? res.content.map(render).join("") : '<span class="muted">Nothing here.</span>';
+      list.querySelectorAll("[data-id]").forEach((el) => el.addEventListener("click", () => open(el)));
+    } catch (e) {
+      list.innerHTML = '<span class="error">' + ITSM.esc(e.message) + "</span>";
+    }
+  }
+
+  function render(n) {
+    return `<div class="notif ${n.read ? "read" : "unread"}" data-id="${n.id}" data-link="${ITSM.esc(n.link || "")}" style="cursor:pointer">
+      <span class="dot"></span>
+      <div><strong>${ITSM.esc(n.title)}</strong><div>${ITSM.esc(n.body)}</div>
+      <div class="muted">${ITSM.fmt(n.createdAt)}</div></div></div>`;
+  }
+
+  async function open(el) {
+    try { await ITSM.api(`/api/notifications/${el.dataset.id}/read`, { method: "POST" }); } catch (e) { /* ignore */ }
+    if (el.dataset.link) location.href = el.dataset.link; else load();
+  }
+
+  document.getElementById("markAll").onclick = async () => { await ITSM.api("/api/notifications/read-all", { method: "POST" }); load(); document.querySelector("itsm-bell").refresh(); };
+  document.getElementById("unreadOnly").onchange = () => { page = 0; load(); };
+  document.getElementById("prev").onclick = () => { if (page > 0) { page--; load(); } };
+  document.getElementById("next").onclick = () => { if (page + 1 < totalPages) { page++; load(); } };
+  document.addEventListener("itsm:notification", () => { if (page === 0) load(); });  // live update
+  load();
+</script>
+</body>
+</html>

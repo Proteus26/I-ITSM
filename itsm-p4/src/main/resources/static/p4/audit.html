@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit log</title>
+  <link rel="stylesheet" href="p4.css">
+</head>
+<body>
+<div id="p4-header"></div>
+<main>
+  <h1>Audit log</h1>
+  <form class="card filters" id="form">
+    <label>Actor (user ID) <input type="number" name="actor" min="1"></label>
+    <label>Action
+      <select name="action"><option value="">Any</option>
+        <option>INCIDENT_REPORTED</option><option>INCIDENT_CLASSIFIED</option><option>PRIORITY_CHANGED</option>
+        <option>INCIDENT_ASSIGNED</option><option>STATUS_CHANGED</option><option>NOTE_ADDED</option>
+        <option>INFO_REQUESTED</option><option>SLA_WARNING</option><option>SLA_BREACHED</option>
+        <option>INCIDENT_ESCALATED</option><option>INCIDENT_RESOLVED</option><option>INCIDENT_CLOSED</option>
+        <option>USER_LOGGED_IN</option><option>LOGIN_FAILED</option></select></label>
+    <label>Incident ID <input type="number" name="incident" min="1"></label>
+    <label>From <input type="date" name="from"></label>
+    <label>To <input type="date" name="to"></label>
+    <div class="row" style="align-self:end"><button type="submit">Filter</button><button type="reset" class="secondary" id="reset">Clear</button></div>
+  </form>
+  <div class="card">
+    <table>
+      <thead><tr><th>Time</th><th>Action</th><th>What happened</th><th>From → To</th><th>Incident</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="row">
+    <button class="secondary" id="prev">Previous</button>
+    <span class="muted" id="pageInfo"></span>
+    <button class="secondary" id="next">Next</button>
+  </div>
+</main>
+<script src="p4.js"></script>
+<script>
+  ITSM.mountHeader("audit.html");
+  const form = document.getElementById("form");
+  let page = 0, totalPages = 1;
+
+  async function run() {
+    const rows = document.getElementById("rows");
+    try {
+      const params = Object.fromEntries(new FormData(form).entries());
+      const res = await ITSM.api("/api/admin/audit?" + ITSM.qs({ ...params, page, size: 25 }));
+      totalPages = Math.max(res.totalPages, 1);
+      document.getElementById("pageInfo").textContent = `Page ${res.page + 1} of ${totalPages} (${res.totalElements} entries)`;
+      rows.innerHTML = res.content.map((a) => `<tr>
+        <td>${ITSM.fmt(a.occurredAt)}</td><td><span class="pill">${ITSM.esc(a.action)}</span></td>
+        <td>${ITSM.esc(a.description)}</td>
+        <td>${a.fromState ? ITSM.esc(a.fromState) + " → " + ITSM.esc(a.toState) : "—"}</td>
+        <td>${a.incidentId == null ? "—" : ITSM.esc(a.incidentId)}</td></tr>`).join("")
+        || '<tr><td colspan="5" class="muted">No audit entries match.</td></tr>';
+    } catch (e) {
+      rows.innerHTML = '<tr><td colspan="5" class="error">' + ITSM.esc(e.message) + "</td></tr>";
+    }
+  }
+
+  form.addEventListener("submit", (e) => { e.preventDefault(); page = 0; run(); });
+  document.getElementById("reset").addEventListener("click", () => setTimeout(() => { page = 0; run(); }));
+  document.getElementById("prev").onclick = () => { if (page > 0) { page--; run(); } };
+  document.getElementById("next").onclick = () => { if (page + 1 < totalPages) { page++; run(); } };
+  run();
+</script>
+</body>
+</html>

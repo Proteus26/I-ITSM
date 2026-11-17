@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search incidents</title>
+  <link rel="stylesheet" href="p4.css">
+</head>
+<body>
+<div id="p4-header"></div>
+<main>
+  <h1>Search incidents</h1>
+  <form class="card filters" id="form">
+    <label>Number <input name="number" placeholder="INC-0001"></label>
+    <label>Search text <input name="q" placeholder="title or description"></label>
+    <label>Created from <input type="date" name="from"></label>
+    <label>Created to <input type="date" name="to"></label>
+    <label>Status
+      <select name="status"><option value="">Any</option>
+        <option>NEW</option><option>CLASSIFIED</option><option>ASSIGNED</option><option>ACKNOWLEDGED</option>
+        <option>IN_PROGRESS</option><option>PENDING_INFO</option><option>RESOLVED</option><option>VERIFIED</option>
+        <option>CLOSED</option><option>CANCELLED</option></select></label>
+    <label>Priority
+      <select name="priority"><option value="">Any</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select></label>
+    <label>Category code <input name="category" placeholder="NETWORK"></label>
+    <label>Service ID <input type="number" name="service" min="1"></label>
+    <label>Assignee (user ID) <input type="number" name="assignee" min="1"></label>
+    <label>Reporter (user ID) <input type="number" name="reporter" min="1"></label>
+    <label>SLA status
+      <select name="slaStatus"><option value="">Any</option><option value="ON_TRACK">On track</option><option value="AT_RISK">At risk</option><option value="BREACHED">Breached</option></select></label>
+    <label>Sort by
+      <select name="sort"><option value="createdAt,desc">Newest first</option><option value="createdAt,asc">Oldest first</option>
+        <option value="priority,asc">Priority (P1 first)</option><option value="status,asc">Status</option><option value="number,asc">Number</option></select></label>
+    <div class="row" style="align-self:end"><button type="submit">Search</button><button type="reset" class="secondary" id="reset">Clear</button></div>
+  </form>
+
+  <div class="card">
+    <div id="summary" class="muted" style="margin-bottom:8px"></div>
+    <table>
+      <thead><tr><th>Number</th><th>Title</th><th>Status</th><th>Priority</th><th>Service</th><th>Assignee</th><th>Reporter</th><th>Created</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="row">
+    <button class="secondary" id="prev">Previous</button>
+    <span class="muted" id="pageInfo"></span>
+    <button class="secondary" id="next">Next</button>
+  </div>
+</main>
+<script src="p4.js"></script>
+<script>
+  ITSM.mountHeader("search.html");
+  const form = document.getElementById("form");
+  let page = 0, totalPages = 1;
+
+  async function run() {
+    const params = Object.fromEntries(new FormData(form).entries());
+    const rows = document.getElementById("rows");
+    try {
+      const res = await ITSM.api("/api/incidents/search?" + ITSM.qs({ ...params, page, size: 15 }));
+      totalPages = Math.max(res.totalPages, 1);
+      document.getElementById("summary").textContent = res.totalElements + " incident(s) found";
+      document.getElementById("pageInfo").textContent = `Page ${res.page + 1} of ${totalPages}`;
+      rows.innerHTML = res.content.map((i) => `<tr>
+        <td>${ITSM.esc(i.number)}</td><td>${ITSM.esc(i.title)}</td>
+        <td><span class="pill">${ITSM.esc(i.status)}</span></td><td>${ITSM.esc(i.priority || "—")}</td>
+        <td>${ITSM.esc(i.serviceName || "—")}</td><td>${ITSM.esc(i.assigneeName || "Unassigned")}</td>
+        <td>${ITSM.esc(i.reporterName || i.reporterId)}</td><td>${ITSM.fmt(i.createdAt)}</td></tr>`).join("")
+        || '<tr><td colspan="8" class="muted">No incidents match these filters.</td></tr>';
+    } catch (e) {
+      rows.innerHTML = '<tr><td colspan="8" class="error">' + ITSM.esc(e.message) + "</td></tr>";
+    }
+  }
+
+  form.addEventListener("submit", (e) => { e.preventDefault(); page = 0; run(); });
+  document.getElementById("reset").addEventListener("click", () => setTimeout(() => { page = 0; run(); }));
+  document.getElementById("prev").onclick = () => { if (page > 0) { page--; run(); } };
+  document.getElementById("next").onclick = () => { if (page + 1 < totalPages) { page++; run(); } };
+  run();
+</script>
+</body>
+</html>
