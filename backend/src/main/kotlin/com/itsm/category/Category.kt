@@ -22,15 +22,15 @@ class Category(
     val code: String = normalizeCode(code)
 
     @Column(name = "name", nullable = false)
-    var name: String = requireName(name)
+    final var name: String = requireName(name)
         private set
 
     @Column(name = "description")
-    var description: String? = description?.trim()?.ifEmpty { null }
+    final var description: String? = description?.trim()?.ifEmpty { null }
         private set
 
     @Column(name = "active", nullable = false)
-    var active: Boolean = true
+    final var active: Boolean = true
         private set
 
     fun update(name: String, description: String?) {

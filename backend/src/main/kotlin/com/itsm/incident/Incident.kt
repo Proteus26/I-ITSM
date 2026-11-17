@@ -50,90 +50,90 @@ class Incident(
     val number: String = requireText(number, "Number", 20)
 
     @Column(name = "title", nullable = false)
-    var title: String = requireText(title, "Title", MAX_TITLE)
+    final var title: String = requireText(title, "Title", MAX_TITLE)
         private set
 
     @Column(name = "description", nullable = false)
-    var description: String = requireText(description, "Description", MAX_TEXT)
+    final var description: String = requireText(description, "Description", MAX_TEXT)
         private set
 
     @Column(name = "reporter_id", nullable = false, updatable = false)
     val reporterId: Long = reporterId
 
     @Column(name = "category_code")
-    var categoryCode: String? = categoryCode?.trim()?.uppercase()?.ifEmpty { null }
+    final var categoryCode: String? = categoryCode?.trim()?.uppercase()?.ifEmpty { null }
         private set
 
     @Column(name = "service_id")
-    var serviceId: Long? = serviceId
+    final var serviceId: Long? = serviceId
         private set
 
     @Column(name = "assignee_id")
-    var assigneeId: Long? = null
+    final var assigneeId: Long? = null
         private set
 
     @Enumerated(EnumType.STRING)
     @Column(name = "impact", nullable = false)
-    var impact: Impact = impact
+    final var impact: Impact = impact
         private set
 
     @Enumerated(EnumType.STRING)
     @Column(name = "urgency", nullable = false)
-    var urgency: Urgency = urgency
+    final var urgency: Urgency = urgency
         private set
 
     @Column(name = "affected_users", nullable = false)
-    var affectedUsers: Int = requireAffectedUsers(affectedUsers)
+    final var affectedUsers: Int = requireAffectedUsers(affectedUsers)
         private set
 
     @Enumerated(EnumType.STRING)
     @Column(name = "priority")
-    var priority: Priority? = null
+    final var priority: Priority? = null
         private set
 
     @Column(name = "priority_score")
-    var priorityScore: Double? = null
+    final var priorityScore: Double? = null
         private set
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    var status: IncidentStatus = IncidentStatus.NEW
+    final var status: IncidentStatus = IncidentStatus.NEW
         private set
 
     @Column(name = "response_due_at")
-    var responseDueAt: Instant? = null
+    final var responseDueAt: Instant? = null
         private set
 
     @Column(name = "resolution_due_at")
-    var resolutionDueAt: Instant? = null
+    final var resolutionDueAt: Instant? = null
         private set
 
     @Column(name = "acknowledged_at")
-    var acknowledgedAt: Instant? = null
+    final var acknowledgedAt: Instant? = null
         private set
 
     @Column(name = "resolved_at")
-    var resolvedAt: Instant? = null
+    final var resolvedAt: Instant? = null
         private set
 
     @Column(name = "closed_at")
-    var closedAt: Instant? = null
+    final var closedAt: Instant? = null
         private set
 
     @Column(name = "resolution_summary")
-    var resolutionSummary: String? = null
+    final var resolutionSummary: String? = null
         private set
 
     @Column(name = "root_cause")
-    var rootCause: String? = null
+    final var rootCause: String? = null
         private set
 
     @Column(name = "feedback_rating")
-    var feedbackRating: Int? = null
+    final var feedbackRating: Int? = null
         private set
 
     @Column(name = "feedback_comment")
-    var feedbackComment: String? = null
+    final var feedbackComment: String? = null
         private set
 
     // Truncated to the database precision so a POST response matches a later GET.
@@ -141,13 +141,13 @@ class Incident(
     val createdAt: Instant = createdAt.truncatedTo(ChronoUnit.MICROS)
 
     @Column(name = "updated_at", nullable = false)
-    var updatedAt: Instant = this.createdAt
+    final var updatedAt: Instant = this.createdAt
         private set
 
     /** Optimistic locking: saving a stale copy fails instead of overwriting someone else's change. */
     @Version
     @Column(name = "version", nullable = false)
-    var version: Long = 0
+    final var version: Long = 0
         private set
 
     /** The behaviour object for the current status (not persisted; derived from [status]). */
