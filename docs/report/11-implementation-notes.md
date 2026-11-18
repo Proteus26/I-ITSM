@@ -81,7 +81,6 @@ deadlines into the past so the monitor produces breaches and warnings. It is ide
 
 ## 11.5 Known limitations
 
-* The admin setting `assignment.strategy` is stored but the selector reads `ASSIGNMENT_STRATEGY` (section 5.3).
 * Login throttle, round-robin pointer and SSE emitters are per instance (section 3.7).
 * The SLA clock is not paused while waiting for information; VERIFIED incidents are not closed automatically.
 * Correlated incidents are shown, not linked or merged. Assignment capacity is a soft limit (no locking).

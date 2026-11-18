@@ -124,8 +124,8 @@ Every calculation stores a sentence explaining itself (`PriorityResult.explanati
 
 **Where.** `interface AssignmentStrategy { val key: String; fun pick(request, candidates): AssignmentResult? }`,
 implemented by `SkillLeastLoadedStrategy` (`skill-least-loaded`, default) and `RoundRobinStrategy` (`round-robin`).
-`AssignmentStrategySelector` resolves the configured key (via `StrategyKeySource`, today the property
-`itsm.assignment.strategy` / env `ASSIGNMENT_STRATEGY`) to a bean and falls back to the default for an unknown key.
+`AssignmentStrategySelector` resolves the configured key (via `StrategyKeySource`: `SettingsStrategyKeySource` reads the admin setting `assignment.strategy` on every call and
+falls back to the property `itsm.assignment.strategy` / env `ASSIGNMENT_STRATEGY` when it is missing or unknown) to a bean and falls back to the default for an unknown key.
 `AssignmentService` builds the candidate list (active, available, below capacity, not the reporter, with workload
 from one grouped query) and hands it to the strategy. Strategies are pure functions of their inputs, so they are
 unit-tested without a database (`AssignmentStrategiesTest`).
@@ -164,13 +164,6 @@ winner, giving up to three ranked suggestions without disturbing round-robin's p
 
 **Known limitation.** Capacity is a soft limit: workloads are read without locking, so two simultaneous assignments
 can both pick a technician with one slot left (documented in `AssignmentService`).
-
-**Known limitation (honest note).** The admin setting `assignment.strategy` is stored in `system_settings` and validated
-by `SettingsAdminService`, but `AssignmentStrategySelector` still reads the key from `PropertyStrategyKeySource` (the
-`ASSIGNMENT_STRATEGY` environment variable). The code carries a `TODO(P5/P3)` for reading the setting through another
-`StrategyKeySource`. Changing the strategy on the settings page therefore does not yet change assignment; the
-environment variable does. (The `priority.strategy` setting, in contrast, is read by `PriorityService` on every call
-and takes effect immediately.)
 
 ## 5.4 Template Method: the report pipeline
 
