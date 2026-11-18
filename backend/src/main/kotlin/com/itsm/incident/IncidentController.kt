@@ -9,6 +9,7 @@ import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -46,6 +47,18 @@ class IncidentController(private val service: IncidentService, private val curre
     @Operation(summary = "Incident detail", description = "Reporter, assignee or administrator; `actions` and `noteTypes` are for the caller.")
     @GetMapping("/{id}")
     fun get(@PathVariable id: Long): IncidentDetail = service.get(id, currentUser.get())
+
+    @Operation(
+        summary = "Edit an incident",
+        description = "Partial update. Reporter: all fields until work starts (NEW, CLASSIFIED, ASSIGNED). Administrator: all fields until RESOLVED. " +
+            "Assignee: impact, urgency, affectedUsers and service while active. Changing impact, urgency, affectedUsers or service recalculates priority and SLA deadlines.",
+    )
+    @ApiResponse(responseCode = "400", description = "Invalid value, empty request, or unknown or inactive service")
+    @ApiResponse(responseCode = "403", description = "Not allowed to edit this incident or one of the given fields")
+    @ApiResponse(responseCode = "409", description = "The incident is RESOLVED or later")
+    @PatchMapping("/{id}")
+    fun update(@PathVariable id: Long, @Valid @RequestBody request: UpdateIncidentRequest): IncidentDetail =
+        service.update(id, currentUser.get(), request)
 
     @Operation(summary = "Notes of an incident", description = "Employees do not see INVESTIGATION notes.")
     @GetMapping("/{id}/notes")

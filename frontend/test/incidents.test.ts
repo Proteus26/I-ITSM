@@ -11,6 +11,7 @@ import {
   incidentHref,
   isFinished,
   parseActionForm,
+  parseEditForm,
   parseNoteForm,
   parseReportForm,
   parseTab,
@@ -181,5 +182,45 @@ describe('backend length limits', () => {
   it('never offers INFO_RESPONSE as a note type', () => {
     expect(allowedNoteTypes(['INFO_RESPONSE', 'COMMENT'])).toEqual(['COMMENT']);
     expect(parseNoteForm(fd({ type: 'INFO_RESPONSE', body: 'x' }), allowedNoteTypes(['INFO_RESPONSE', 'COMMENT'])).ok).toBe(false);
+  });
+});
+
+describe('parseEditForm', () => {
+  const all = ['title', 'description', 'impact', 'urgency', 'affectedUsers', 'serviceId'];
+  const form = { title: 'VPN down', description: 'Cannot connect', impact: 'TEAM', urgency: 'HIGH', affectedUsers: '12', serviceId: '3' };
+
+  it('builds a request with every editable field', () => {
+    expect(parseEditForm(fd(form), all)).toEqual({
+      ok: true,
+      value: { title: 'VPN down', description: 'Cannot connect', impact: 'TEAM', urgency: 'HIGH', affectedUsers: 12, serviceId: 3 },
+    });
+  });
+  it('ignores fields the viewer may not edit', () => {
+    const r = parseEditForm(fd({ ...form, title: '' }), ['impact', 'urgency', 'affectedUsers', 'serviceId']);
+    expect(r).toEqual({ ok: true, value: { impact: 'TEAM', urgency: 'HIGH', affectedUsers: 12, serviceId: 3 } });
+  });
+  it('turns a blank service into clearService', () => {
+    expect(parseEditForm(fd({ serviceId: '' }), ['serviceId'])).toEqual({ ok: true, value: { clearService: true } });
+  });
+  it('mirrors the backend limits', () => {
+    expect(parseEditForm(fd({ ...form, title: '' }), all)).toMatchObject({ ok: false, errors: { title: expect.any(String) } });
+    expect(parseEditForm(fd({ ...form, title: 'a'.repeat(MAX_TITLE + 1) }), all).ok).toBe(false);
+    expect(parseEditForm(fd({ ...form, description: 'a'.repeat(MAX_TEXT + 1) }), all).ok).toBe(false);
+    expect(parseEditForm(fd({ ...form, impact: 'HUGE' }), all)).toMatchObject({ ok: false, errors: { impact: expect.any(String) } });
+    expect(parseEditForm(fd({ ...form, urgency: '' }), all)).toMatchObject({ ok: false, errors: { urgency: expect.any(String) } });
+    expect(parseEditForm(fd({ ...form, serviceId: 'abc' }), all)).toMatchObject({ ok: false, errors: { serviceId: expect.any(String) } });
+  });
+  it.each(['0', '-1', 'abc', '1.5', ''])('rejects affectedUsers %s', (n) => {
+    expect(parseEditForm(fd({ ...form, affectedUsers: n }), all)).toMatchObject({ ok: false, errors: { affectedUsers: expect.any(String) } });
+  });
+  it('refuses a form when nothing is editable', () => {
+    expect(parseEditForm(fd(form), []).ok).toBe(false);
+  });
+  it('is reached through parseActionForm for the EDIT action', () => {
+    expect(parseActionForm('EDIT', fd(form), ['title'])).toEqual({ ok: true, value: { title: 'VPN down' } });
+  });
+  it('has an intent and is a known action', () => {
+    expect(ACTION_INTENT.EDIT).toBe('edit');
+    expect(visibleActions(['EDIT', 'bogus'])).toEqual(['EDIT']);
   });
 });

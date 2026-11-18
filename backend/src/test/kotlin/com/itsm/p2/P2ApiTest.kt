@@ -133,13 +133,13 @@ class P2ApiTest @Autowired constructor(
         assertTrue(d["responseDueAt"].isString && d["resolutionDueAt"].isString)
         assertTrue(d["number"].asString().startsWith("INC-"))
         assertEquals(1, d["affectedUsers"].asInt())
-        assertTrue(actions(d).isEmpty())
+        assertEquals(setOf("EDIT"), actions(d)) // the reporter may still edit before work starts
         assertTrue("COMMENT" in d["noteTypes"].map { it.asString() })
 
         val forTech = detail(d["id"].asLong(), techToken)
-        assertEquals(setOf("ACKNOWLEDGE"), actions(forTech))
+        assertEquals(setOf("ACKNOWLEDGE", "EDIT"), actions(forTech))
         assertEquals(setOf("INVESTIGATION", "COMMENT"), forTech["noteTypes"].map { it.asString() }.toSet())
-        assertEquals(setOf("ASSIGN"), actions(detail(d["id"].asLong(), adminToken)))
+        assertEquals(setOf("ASSIGN", "EDIT"), actions(detail(d["id"].asLong(), adminToken)))
     }
 
     @Test
@@ -150,8 +150,8 @@ class P2ApiTest @Autowired constructor(
         assertNull(d["categoryCode"].takeUnless { it.isNull })
         assertNull(d["assignee"].takeUnless { it.isNull })
         assertTrue(d["priority"].isString, "priority is calculated even before classification")
-        assertEquals(setOf("CANCEL"), actions(d))
-        assertEquals(setOf("CLASSIFY", "CANCEL"), actions(detail(id, adminToken)))
+        assertEquals(setOf("CANCEL", "EDIT"), actions(d))
+        assertEquals(setOf("CLASSIFY", "CANCEL", "EDIT"), actions(detail(id, adminToken)))
 
         assertEquals(403, status(api.post("/api/admin/incidents/$id/classify", mapOf("categoryCode" to "NETWORK"), empToken)))
         assertEquals(400, status(api.post("/api/admin/incidents/$id/classify", mapOf("categoryCode" to "NOPE"), adminToken)))
@@ -168,7 +168,7 @@ class P2ApiTest @Autowired constructor(
         val d = report(category = "NETWORK")
         val id = d["id"].asLong()
         assertEquals("CLASSIFIED", d["status"].asString())
-        assertEquals(setOf("ASSIGN", "CANCEL"), actions(detail(id, adminToken)))
+        assertEquals(setOf("ASSIGN", "CANCEL", "EDIT"), actions(detail(id, adminToken)))
 
         assertEquals(400, status(api.post("/api/admin/incidents/$id/assign", mapOf("technicianId" to emp.uid), adminToken)))
         assertEquals(400, status(api.post("/api/admin/incidents/$id/assign", mapOf("technicianId" to 999999999L), adminToken)))
@@ -194,7 +194,7 @@ class P2ApiTest @Autowired constructor(
         assertEquals("ACKNOWLEDGED", act(id, "acknowledge", techToken)["status"].asString())
         val started = act(id, "start", techToken)
         assertEquals("IN_PROGRESS", started["status"].asString())
-        assertEquals(setOf("REQUEST_INFO", "RESOLVE"), actions(started))
+        assertEquals(setOf("REQUEST_INFO", "RESOLVE", "EDIT"), actions(started))
 
         val pending = act(id, "request-info", techToken, mapOf("question" to "Which floor are you on?"))
         assertEquals("PENDING_INFO", pending["status"].asString())
