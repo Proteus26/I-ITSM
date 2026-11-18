@@ -237,7 +237,7 @@ defaults can be edited but not deleted; a duplicate service/priority is 409). A 
 | `ITSM_MAIL_GATEWAY` / `MAIL_HOST` / `MAIL_PORT` | backend | `logging` / `localhost` / `1025`; set the gateway to `smtp` to send real email (see [docs/p4.md](docs/p4.md) for all notification settings) |
 | `SLA_MONITOR_ENABLED` / `SLA_MONITOR_INTERVAL` | backend | `true` / `60000`; whether and how often (ms) open incidents are checked against their SLA deadlines |
 | `DEMO_DATA`            | backend  | `false`; `true` creates demo users and incidents at startup (development only, public passwords) |
-| `ASSIGNMENT_STRATEGY`  | backend  | `skill-least-loaded`; or `round-robin` (see [docs/p5.md](docs/p5.md)) |
+| `ASSIGNMENT_STRATEGY`  | backend  | `skill-least-loaded`; or `round-robin`; fallback when the admin setting is unset (see [docs/p5.md](docs/p5.md)) |
 | `FRONTEND_BASE_URL`    | backend  | `http://localhost:4321`; prefix for links in notification emails |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
 | `BACKEND_TIMEOUT_MS`   | frontend | `5000`; how long a page waits for the backend before treating it as unreachable |
@@ -447,7 +447,7 @@ class IncidentService(private val currentUser: CurrentUser) {
 Backend only so far; details and extension points are in [docs/p5.md](docs/p5.md).
 
 - **Assignment**: `AssignmentService.assign(...)` picks a technician (active, available, below capacity) with the
-  strategy named by `itsm.assignment.strategy` / `ASSIGNMENT_STRATEGY` (`skill-least-loaded` or `round-robin`);
+  strategy named by the admin setting `assignment.strategy` (falling back to `itsm.assignment.strategy` / `ASSIGNMENT_STRATEGY`; `skill-least-loaded` or `round-robin`);
   `null` means nobody suits and the incident stays CLASSIFIED. Admins get ranked suggestions from
   `GET /api/admin/assignment/recommendations?category=&priority=`.
 - **Category suggestion**: `GET /api/intelligence/suggest-category?title=&description=` (keyword rules, 204 when nothing matches).
