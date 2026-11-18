@@ -27,15 +27,17 @@ data class ServiceResponse(
     val criticality: Int, val ownerTeam: String?, val active: Boolean,
 )
 
+private const val CODE_REGEX = "(?i)\\s*[A-Z][A-Z0-9_]{0,49}\\s*"
+
 data class CreateServiceRequest(
-    @field:NotBlank @field:Size(max = 50) val code: String,
+    @field:NotBlank @field:Size(max = 50) @field:Pattern(regexp = CODE_REGEX, message = "must be letters, digits and underscores, starting with a letter") val code: String,
     @field:NotBlank @field:Size(max = 100) val name: String,
     @field:Size(max = 500) val description: String? = null,
     @field:Min(1) @field:Max(4) val criticality: Int? = null,
     @field:Size(max = 100) val ownerTeam: String? = null,
 )
 
-/** Every field is optional; null means "leave unchanged". The code cannot be changed. */
+/** Every field is optional; null means "leave unchanged", an empty string clears description and ownerTeam. The code cannot be changed. */
 data class UpdateServiceRequest(
     @field:Pattern(regexp = NOT_BLANK, message = "must not be blank") @field:Size(max = 100) val name: String? = null,
     @field:Size(max = 500) val description: String? = null,

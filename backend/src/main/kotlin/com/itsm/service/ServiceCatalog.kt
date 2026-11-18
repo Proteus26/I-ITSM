@@ -2,6 +2,7 @@ package com.itsm.service
 
 import com.itsm.common.exception.ItsmException
 import com.itsm.common.exception.NotFoundException
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
@@ -46,10 +47,13 @@ class ServiceAdminService(private val repository: ItServiceRepository) {
         val service = ItService(request.code, request.name, request.description, request.criticality ?: 2, request.ownerTeam)
         if (repository.existsByCodeIgnoreCase(service.code)) throw ServiceConflictException("Service code '${service.code}' already exists")
         if (repository.existsByNameIgnoreCase(service.name)) throw ServiceConflictException("Service name '${service.name}' already exists")
-        return repository.save(service)
+        return saveOrConflict(service)
     }
 
-    /** Null fields in [request] leave the value unchanged. */
+    /**
+     * Null fields in [request] leave the value unchanged; for [UpdateServiceRequest.description] and
+     * [UpdateServiceRequest.ownerTeam] an empty string clears the value.
+     */
     @Transactional
     fun update(id: Long, request: UpdateServiceRequest): ItService {
         val service = repository.findById(id).orElseThrow { NotFoundException("Service $id not found") }
@@ -62,6 +66,14 @@ class ServiceAdminService(private val repository: ItServiceRepository) {
             ownerTeam = request.ownerTeam ?: service.ownerTeam,
             active = request.active ?: service.active,
         )
-        return service
+        return saveOrConflict(service)
     }
+
+    /** The exists-checks above can race with a concurrent request; the unique constraints then decide and we answer 409, not 500. */
+    private fun saveOrConflict(service: ItService): ItService =
+        try {
+            repository.saveAndFlush(service)
+        } catch (e: DataIntegrityViolationException) {
+            throw ServiceConflictException("Service code or name already exists")
+        }
 }

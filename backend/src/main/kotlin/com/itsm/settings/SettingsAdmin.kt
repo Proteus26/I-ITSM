@@ -19,6 +19,9 @@ object SettingKeys {
     const val PRIORITY_STRATEGY = "priority.strategy"
     const val ASSIGNMENT_STRATEGY = "assignment.strategy"
 
+    /** Assignment strategies P5 implements; validated here so a typo cannot silently disable assignment. */
+    val ASSIGNMENT_STRATEGIES: Set<String> = setOf("skill-least-loaded", "round-robin")
+
     val DEFAULTS: Map<String, String> = mapOf(
         PRIORITY_STRATEGY to "weighted",
         ASSIGNMENT_STRATEGY to "skill-least-loaded",
@@ -29,7 +32,7 @@ data class SettingResponse(val key: String, val value: String)
 
 data class UpdateSettingRequest(@field:NotBlank @field:Size(max = 500) val value: String)
 
-/** Validates admin changes: only known keys; priority.strategy must be a registered strategy (P5 validates the assignment strategy). */
+/** Validates admin changes: only known keys; priority.strategy must be a registered strategy and assignment.strategy one of [SettingKeys.ASSIGNMENT_STRATEGIES]. */
 @Service
 class SettingsAdminService(private val settings: SettingsService, private val priority: PriorityService) {
 
@@ -43,6 +46,11 @@ class SettingsAdminService(private val settings: SettingsService, private val pr
         if (key == SettingKeys.PRIORITY_STRATEGY) {
             domainRequire(value in priority.availableStrategies) {
                 "Unknown priority strategy '$value'. Available: ${priority.availableStrategies.sorted()}"
+            }
+        }
+        if (key == SettingKeys.ASSIGNMENT_STRATEGY) {
+            domainRequire(value in SettingKeys.ASSIGNMENT_STRATEGIES) {
+                "Unknown assignment strategy '$value'. Available: ${SettingKeys.ASSIGNMENT_STRATEGIES.sorted()}"
             }
         }
         settings.set(key, value)

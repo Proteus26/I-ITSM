@@ -39,9 +39,13 @@ class SlaMonitorTest @Autowired constructor(
 
     private val t0: Instant = Instant.now().truncatedTo(ChronoUnit.SECONDS)
     private var serviceId: Long? = null
+    private val users = mutableMapOf<String, com.itsm.user.User>()
 
     @BeforeEach
-    fun setUp() = data.reset()
+    fun setUp() {
+        data.reset()
+        users.clear()
+    }
 
     @AfterEach
     fun cleanUp() {
@@ -51,12 +55,15 @@ class SlaMonitorTest @Autowired constructor(
 
     private fun minutes(n: Long) = t0.plus(n, ChronoUnit.MINUTES)
 
-    private fun monitored(priority: Priority, status: IncidentStatus = IncidentStatus.ASSIGNED, service: Long? = null): Long {
-        val tech = data.user("tech1", Role.TECHNICIAN)
-        val reporter = data.user("emp1", Role.EMPLOYEE)
-        val incident = data.incident("INC-900001", "Monitored", reporter, status = status, priority = priority, assignee = tech, createdAt = t0)
-        val deadlines = sla.computeDeadlines(service, priority, t0)
-        incident.applySla(deadlines.responseDueAt, deadlines.resolutionDueAt, t0)
+    private fun monitored(
+        priority: Priority, status: IncidentStatus = IncidentStatus.ASSIGNED, service: Long? = null,
+        number: String = "INC-900001", from: Instant = t0,
+    ): Long {
+        val tech = users.getOrPut("tech1") { data.user("tech1", Role.TECHNICIAN) }
+        val reporter = users.getOrPut("emp1") { data.user("emp1", Role.EMPLOYEE) }
+        val incident = data.incident(number, "Monitored", reporter, status = status, priority = priority, assignee = tech, createdAt = t0)
+        val deadlines = sla.computeDeadlines(service, priority, from)
+        incident.applySla(deadlines.responseDueAt, deadlines.resolutionDueAt, from)
         return requireNotNull(incidents.saveAndFlush(incident).id)
     }
 
@@ -122,5 +129,32 @@ class SlaMonitorTest @Autowired constructor(
         val id = monitored(Priority.P1, IncidentStatus.RESOLVED)
         assertThat(monitor.runOnce(minutes(600))).isZero()
         assertThat(types(id)).isEmpty()
+    }
+
+    @Test
+    fun `an incident without a policy does not stop another incident's breach from being recorded`() {
+        val broken = monitored(Priority.P4, number = "INC-900002") // no default P4 policy once deleted below
+        val healthy = monitored(Priority.P3, number = "INC-900003")
+        val p4 = jdbc.queryForMap("select response_minutes, resolution_minutes, warning_threshold_pct from sla_policies where service_id is null and priority = 'P4'")
+        jdbc.update("delete from sla_policies where service_id is null and priority = 'P4'")
+        try {
+            assertThat(monitor.runOnce(minutes(61))).isEqualTo(1) // only the P3 response breach
+            assertThat(types(healthy)).containsExactly("RESPONSE_BREACH")
+            assertThat(types(broken)).isEmpty()
+        } finally {
+            jdbc.update(
+                "insert into sla_policies (service_id, priority, response_minutes, resolution_minutes, warning_threshold_pct) values (null, 'P4', ?, ?, ?)",
+                p4["response_minutes"], p4["resolution_minutes"], p4["warning_threshold_pct"],
+            )
+        }
+    }
+
+    @Test
+    fun `deadlines counted from a later start give no early warning`() {
+        val id = monitored(Priority.P3, from = minutes(180)) // response due at +240, window starts at +180
+        assertThat(monitor.runOnce(minutes(200))).isZero() // 33 % of the window, though 83 % of the time since creation
+        assertThat(types(id)).isEmpty()
+        assertThat(monitor.runOnce(minutes(230))).isEqualTo(1) // 83 % of the window
+        assertThat(types(id)).containsExactly("WARNING")
     }
 }
