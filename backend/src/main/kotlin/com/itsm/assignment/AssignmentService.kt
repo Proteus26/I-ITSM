@@ -10,6 +10,11 @@ import org.springframework.transaction.annotation.Transactional
  * Chooses a technician for an incident. It does not change the incident: P2's incident service calls [assign]
  * and, if a technician comes back, performs `Incident.assign(...)`. A null result means nobody suits, and the
  * incident stays CLASSIFIED for an administrator (who can use [recommend]).
+ *
+ * Capacity is a soft limit. Workloads are read as a snapshot without locking, so two concurrent assignments can
+ * both see a technician one short of their maximum and both pick them, exceeding it by one. If strictness is ever
+ * needed, the caller's transaction should re-check the count (or lock the technician row) before assigning.
+ * Technicians in [AssignmentRequest.excludeTechnicianIds] are never candidates.
  */
 @Service
 class AssignmentService(
@@ -23,7 +28,7 @@ class AssignmentService(
 
     /** Picks one technician with the configured strategy, or null when there is no candidate. */
     @Transactional(readOnly = true)
-    fun assign(request: AssignmentRequest): AssignmentResult? = selector.select().pick(request, candidates())
+    fun assign(request: AssignmentRequest): AssignmentResult? = selector.select().pick(request, candidates(request))
 
     /**
      * Up to [limit] ranked suggestions for an administrator. Always uses [SkillLeastLoadedStrategy], whatever is
@@ -31,7 +36,7 @@ class AssignmentService(
      */
     @Transactional(readOnly = true)
     fun recommend(request: AssignmentRequest, limit: Int = 3): List<AssignmentResult> {
-        val remaining = candidates().toMutableList()
+        val remaining = candidates(request).toMutableList()
         val ranked = mutableListOf<AssignmentResult>()
         while (ranked.size < limit) {
             val pick = skillLeastLoaded.pick(request, remaining) ?: break
@@ -41,9 +46,9 @@ class AssignmentService(
         return ranked
     }
 
-    /** Active, available technicians below their capacity, with their workload from a single grouped query. */
-    private fun candidates(): List<TechnicianCandidate> {
-        val all = technicians.findByActiveTrueAndAvailableTrue()
+    /** Active, available, non-excluded technicians below their capacity, with their workload from a single grouped query. */
+    private fun candidates(request: AssignmentRequest): List<TechnicianCandidate> {
+        val all = technicians.findByActiveTrueAndAvailableTrue().filter { it.id !in request.excludeTechnicianIds }
         if (all.isEmpty()) return emptyList()
         val load = workload(all.map { requireNotNull(it.id) })
         return all.map {

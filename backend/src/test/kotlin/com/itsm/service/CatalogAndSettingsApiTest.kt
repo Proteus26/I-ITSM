@@ -55,6 +55,7 @@ class CatalogAndSettingsApiTest @Autowired constructor(
         data.reset()
         jdbc.update("delete from it_services where code like 'API_%'")
         settings.set("priority.strategy", "weighted")
+        settings.set("assignment.strategy", "skill-least-loaded")
     }
 
     private fun put(url: String, body: Any, token: String) =
@@ -87,6 +88,7 @@ class CatalogAndSettingsApiTest @Autowired constructor(
 
         assertEquals(409, api.post("/api/admin/services", mapOf("code" to "API_TEST", "name" to "Other"), admin).response.status)
         assertEquals(400, api.post("/api/admin/services", mapOf("code" to "API_BAD", "name" to "Bad", "criticality" to 9), admin).response.status)
+        assertEquals(400, api.post("/api/admin/services", mapOf("code" to "bad-code!", "name" to "Bad code"), admin).response.status)
 
         val patched = api.patch("/api/admin/services/$id", mapOf("criticality" to 4, "active" to false, "ownerTeam" to "QA"), admin)
         assertEquals(200, patched.response.status)
@@ -115,6 +117,8 @@ class CatalogAndSettingsApiTest @Autowired constructor(
         assertEquals(400, put("/api/admin/settings/unknown.key", mapOf("value" to "x"), admin).response.status)
         assertEquals(400, put("/api/admin/settings/priority.strategy", mapOf("value" to "nonsense"), admin).response.status)
         assertEquals(400, put("/api/admin/settings/assignment.strategy", mapOf("value" to "  "), admin).response.status)
+        assertEquals(400, put("/api/admin/settings/assignment.strategy", mapOf("value" to "nonsense"), admin).response.status)
+        assertEquals(200, put("/api/admin/settings/assignment.strategy", mapOf("value" to "round-robin"), admin).response.status)
         assertEquals("weighted", settings.get("priority.strategy", "?"))
 
         assertEquals(200, put("/api/admin/settings/priority.strategy", mapOf("value" to "matrix"), admin).response.status)

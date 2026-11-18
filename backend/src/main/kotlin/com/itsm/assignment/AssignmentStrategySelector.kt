@@ -3,6 +3,7 @@ package com.itsm.assignment
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Says which strategy key is configured right now. The default reads the `itsm.assignment.strategy` property.
@@ -24,9 +25,10 @@ class PropertyStrategyKeySource(@Value("\${itsm.assignment.strategy:$DEFAULT_STR
 /** Strategy used when nothing is configured or the configured key is unknown. */
 const val DEFAULT_STRATEGY = SkillLeastLoadedStrategy.KEY
 
-/** Resolves the configured key to a strategy bean; an unknown key logs a warning and falls back to [DEFAULT_STRATEGY]. */
+/** Resolves the configured key to a strategy bean; an unknown key logs a warning (once per distinct key) and falls back to [DEFAULT_STRATEGY]. */
 @Component
 class AssignmentStrategySelector(strategies: List<AssignmentStrategy>, private val keySource: StrategyKeySource) {
+    private val warned: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val byKey: Map<String, AssignmentStrategy> = strategies.associateBy { it.key }
 
     /** Keys of all registered strategies. */
@@ -35,7 +37,7 @@ class AssignmentStrategySelector(strategies: List<AssignmentStrategy>, private v
     fun select(): AssignmentStrategy {
         val wanted = keySource.currentKey()?.trim()?.lowercase()
         byKey[wanted]?.let { return it }
-        log.warn("Unknown assignment strategy '{}'; falling back to '{}'. Available: {}", wanted, DEFAULT_STRATEGY, byKey.keys)
+        if (warned.add(wanted ?: "")) log.warn("Unknown assignment strategy '{}'; falling back to '{}'. Available: {}", wanted, DEFAULT_STRATEGY, byKey.keys)
         return byKey.getValue(DEFAULT_STRATEGY)
     }
 

@@ -4,7 +4,9 @@ import com.itsm.common.exception.domainRequire
 import com.itsm.incident.Priority
 import com.itsm.settings.SettingKeys
 import com.itsm.settings.SettingsService
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Everything a [PriorityStrategy] may look at. [impact], [urgency] and [serviceCriticality] are weights 1-4
@@ -51,8 +53,15 @@ class PriorityService(strategies: List<PriorityStrategy>, private val settings: 
 
     fun calculate(input: PriorityInput): PriorityResult {
         val key = settings.get(SettingKeys.PRIORITY_STRATEGY, DEFAULT_STRATEGY)
-        return (byKey[key] ?: byKey.getValue(DEFAULT_STRATEGY)).calculate(input)
+        val strategy = byKey[key]
+        if (strategy == null && warnedKeys.add(key)) {
+            log.warn("Unknown priority.strategy '{}' in settings; falling back to '{}'", key, DEFAULT_STRATEGY)
+        }
+        return (strategy ?: byKey.getValue(DEFAULT_STRATEGY)).calculate(input)
     }
+
+    private val log = LoggerFactory.getLogger(PriorityService::class.java)
+    private val warnedKeys: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     companion object {
         const val DEFAULT_STRATEGY = "weighted"

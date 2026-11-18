@@ -9,7 +9,7 @@ alter table it_services
     add column active      boolean      not null default true;
 
 -- Rows that already exist (none on a fresh database) get a generated code before the column becomes mandatory.
-update it_services set code = 'SVC-' || id where code is null;
+update it_services set code = 'SVC_' || id where code is null;
 alter table it_services alter column code set not null;
 alter table it_services add constraint uq_it_services_code unique (code);
 
@@ -53,4 +53,5 @@ insert into system_settings (key, value) values
     ('assignment.strategy', 'skill-least-loaded');
 
 -- One WARNING / RESPONSE_BREACH / RESOLUTION_BREACH per incident: the SLA monitor relies on this for idempotency.
+delete from sla_events a using sla_events b where a.incident_id = b.incident_id and a.type = b.type and a.id > b.id;
 alter table sla_events add constraint uq_sla_events_incident_type unique (incident_id, type);

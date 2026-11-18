@@ -85,7 +85,11 @@ class TokenSimilarityDuplicateDetector(private val em: EntityManager, private va
             .resultList
 
     companion object {
-        const val THRESHOLD = 0.3
+        /**
+         * Minimum score to report. 0.4 keeps two short titles that share only one word ("Printer broken" and
+         * "Printer jammed" score 0.33) from being flagged, while real duplicates score well above it.
+         */
+        const val THRESHOLD = 0.4
         const val MAX_CANDIDATES = 500
         val WINDOW: Duration = Duration.ofDays(30)
     }
