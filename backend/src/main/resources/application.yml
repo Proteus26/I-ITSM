@@ -60,6 +60,9 @@ itsm:
     # How often open incidents are checked against their SLA deadlines (milliseconds), and whether the check runs at all.
     monitor-interval: ${SLA_MONITOR_INTERVAL:60000}
     monitor-enabled: ${SLA_MONITOR_ENABLED:true}
+  assignment:
+    # skill-least-loaded (default) or round-robin; an unknown value logs a warning and uses the default.
+    strategy: ${ASSIGNMENT_STRATEGY:skill-least-loaded}
   frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:4321}
 
 management:
