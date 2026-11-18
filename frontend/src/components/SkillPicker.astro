@@ -1,0 +1,42 @@
+---
+import { skillChoices } from '../lib/adminConfig';
+import type { CategorySummary } from '../lib/incidentTypes';
+
+interface Props {
+  /** Active categories, or null when they could not be loaded (a free-text field is shown instead). */
+  categories: CategorySummary[] | null;
+  /** Comma-separated skill codes currently chosen. */
+  selected: string;
+  error?: string | undefined;
+}
+const { categories, selected, error } = Astro.props;
+const choices = categories ? skillChoices(categories, selected.split(',')) : [];
+---
+
+{
+  categories === null ? (
+    <div class="field">
+      <label for="f-skills">Skills</label>
+      <input id="f-skills" name="skills" type="text" value={selected} aria-invalid={error ? 'true' : undefined} />
+      <p class="hint">Comma-separated category codes. The category list could not be loaded.</p>
+      {error && <p class="error"><span class="sr-only">Error: </span>{error}</p>}
+    </div>
+  ) : (
+    <fieldset>
+      <legend>Skills</legend>
+      {choices.length === 0 && <p class="muted">There are no active categories.</p>}
+      {
+        choices.map((c) => (
+          <div class="field">
+            <div class="checkbox">
+              <input id={`skill-${c.value}`} name="skill" type="checkbox" value={c.value} checked={c.checked} />
+              <label for={`skill-${c.value}`}>{c.label}</label>
+            </div>
+          </div>
+        ))
+      }
+      <p class="hint">Incidents of these categories are preferred when a technician is chosen automatically.</p>
+      {error && <p class="error"><span class="sr-only">Error: </span>{error}</p>}
+    </fieldset>
+  )
+}

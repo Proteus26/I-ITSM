@@ -21,6 +21,7 @@ import {
   type RequestInfoRequest,
   type ResolveRequest,
   type ResumeRequest,
+  type UpdateIncidentRequest,
   type Urgency,
 } from './incidentTypes';
 import type { Role } from './types';
@@ -148,6 +149,7 @@ export const ACTION_INTENT: Record<IncidentAction, string> = {
   FEEDBACK: 'feedback',
   ASSIGN: 'assign',
   CLASSIFY: 'classify',
+  EDIT: 'edit',
 };
 
 export const ACTION_LABEL: Record<IncidentAction, string> = {
@@ -163,6 +165,7 @@ export const ACTION_LABEL: Record<IncidentAction, string> = {
   FEEDBACK: 'Send feedback',
   ASSIGN: 'Assign',
   CLASSIFY: 'Classify',
+  EDIT: 'Edit incident',
 };
 
 /** Actions that ask for confirmation (data-confirm, see public/scripts/confirm.js). */
@@ -216,10 +219,11 @@ export type ActionBody =
   | ReasonRequest
   | FeedbackRequest
   | ClassifyRequest
-  | AssignRequest;
+  | AssignRequest
+  | UpdateIncidentRequest;
 
 /** Validates the form of an action and builds its request body (undefined when the call has no body). */
-export function parseActionForm(action: IncidentAction, form: FormData): ParseResult<ActionBody> {
+export function parseActionForm(action: IncidentAction, form: FormData, editable: readonly string[] = []): ParseResult<ActionBody> {
   const errors: Record<string, string> = {};
   let body: ActionBody;
   switch (action) {
@@ -252,6 +256,8 @@ export function parseActionForm(action: IncidentAction, form: FormData): ParseRe
       body = { rating: rating ?? 0, ...(comment === undefined ? {} : { comment }) };
       break;
     }
+    case 'EDIT':
+      return parseEditForm(form, editable);
     case 'CLASSIFY': {
       const categoryCode = formString(form, 'categoryCode');
       if (!CATEGORY_CODE.test(categoryCode)) errors.categoryCode = 'Choose a category.';
@@ -268,6 +274,59 @@ export function parseActionForm(action: IncidentAction, form: FormData): ParseRe
       body = undefined; // ACKNOWLEDGE, START, VERIFY, CLOSE
   }
   return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, value: body };
+}
+
+/** The fields the edit form can carry, with the names of the request and of `IncidentDetail.editableFields`. */
+export const EDIT_FIELDS = ['title', 'description', 'impact', 'urgency', 'affectedUsers', 'serviceId'] as const;
+
+/**
+ * Validates the edit form. Only the fields in `editable` (the backend's `editableFields` for the viewer) are read, so
+ * a hand-made form cannot send others; the backend checks again. A blank service means "no service" (`clearService`).
+ * Same limits as the report form.
+ */
+export function parseEditForm(form: FormData, editable: readonly string[]): ParseResult<UpdateIncidentRequest> {
+  const errors: Record<string, string> = {};
+  const value: UpdateIncidentRequest = {};
+  const has = (f: string) => editable.includes(f);
+  if (has('title')) {
+    const title = formString(form, 'title');
+    if (!title) errors.title = 'Enter a title.';
+    else if (title.length > MAX_TITLE) errors.title = `The title can have at most ${MAX_TITLE} characters.`;
+    else value.title = title;
+  }
+  if (has('description')) {
+    const description = formString(form, 'description');
+    if (!description) errors.description = 'Describe the problem.';
+    else if (description.length > MAX_TEXT) errors.description = `The description can have at most ${MAX_TEXT} characters.`;
+    else value.description = description;
+  }
+  if (has('impact')) {
+    const impact = formString(form, 'impact');
+    if ((IMPACTS as readonly string[]).includes(impact)) value.impact = impact as Impact;
+    else errors.impact = 'Choose the impact.';
+  }
+  if (has('urgency')) {
+    const urgency = formString(form, 'urgency');
+    if ((URGENCIES as readonly string[]).includes(urgency)) value.urgency = urgency as Urgency;
+    else errors.urgency = 'Choose the urgency.';
+  }
+  if (has('affectedUsers')) {
+    const users = parseOptionalInt(formString(form, 'affectedUsers'), { min: 1 });
+    if (users === undefined) errors.affectedUsers = 'Enter a whole number, 1 or more.';
+    else value.affectedUsers = users;
+  }
+  if (has('serviceId')) {
+    const raw = formString(form, 'serviceId');
+    if (raw === '') value.clearService = true;
+    else {
+      const serviceId = parseOptionalInt(raw, { min: 1 });
+      if (serviceId === undefined) errors.serviceId = 'Choose a service from the list.';
+      else value.serviceId = serviceId;
+    }
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  if (Object.keys(value).length === 0) return { ok: false, errors: { title: 'There is nothing you can change.' } };
+  return { ok: true, value };
 }
 
 /** Validates the "add a note" form; `allowed` is the `noteTypes` the backend returned for the viewer. */
@@ -366,5 +425,6 @@ export const NOTICES: Record<string, string> = {
   feedback: 'Thank you for your feedback.',
   assign: 'Incident assigned.',
   classify: 'Incident classified.',
+  edit: 'Incident updated. Priority and deadlines were recalculated where needed.',
   'add-note': 'Note added.',
 };

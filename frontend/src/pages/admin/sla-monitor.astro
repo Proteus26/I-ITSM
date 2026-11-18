@@ -1,0 +1,155 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import IncidentStatusBadge from '../../components/IncidentStatusBadge.astro';
+import PriorityBadge from '../../components/PriorityBadge.astro';
+import { backendFor } from '../../lib/backend';
+import { formatDateTime, pluralize } from '../../lib/forms';
+import { handleLoadError } from '../../lib/loadError';
+import { byUrgency, clusterSummary, deadlineBadgeClass, remainingText } from '../../lib/ops';
+import type { IncidentCluster, SlaRiskItem, SlaRiskReport } from '../../lib/incidentTypes';
+
+// ADMIN only: the /admin rule in src/lib/access.ts, and the backend checks the role again.
+const api = backendFor(Astro.cookies);
+
+let report: SlaRiskReport | null = null;
+let error: string | null = null;
+let clusters: IncidentCluster[] = [];
+let clustersFailed = false;
+
+try {
+  [report, clusters] = await Promise.all([
+    api.slaAtRisk(),
+    // The clusters are a second view: if they fail the SLA lists are still shown.
+    api.correlations().catch(() => {
+      clustersFailed = true;
+      return [] as IncidentCluster[];
+    }),
+  ]);
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+const breached = report ? byUrgency(report.breached) : [];
+const atRisk = report ? byUrgency(report.atRisk) : [];
+const sections: { id: string; title: string; hint: string; items: SlaRiskItem[]; state: 'BREACHED' | 'AT_RISK'; empty: string }[] = [
+  {
+    id: 'breached',
+    title: 'Breached',
+    hint: 'Open incidents whose response or resolution deadline has passed, most overdue first.',
+    items: breached,
+    state: 'BREACHED',
+    empty: 'No open incident has breached its SLA.',
+  },
+  {
+    id: 'at-risk',
+    title: 'At risk',
+    hint: 'Predicted to breach: most of the time is used, nobody has responded, nobody is assigned or the technician is over capacity.',
+    items: atRisk,
+    state: 'AT_RISK',
+    empty: 'Nothing is at risk right now.',
+  },
+];
+---
+
+<Layout title="SLA monitor · I-ITSM">
+  <h1>SLA monitor</h1>
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    report && (
+      <>
+        <p class="muted">
+          {pluralize(breached.length, 'breached incident')}, {pluralize(atRisk.length, 'incident')} at risk. Checked {formatDateTime(report.generatedAt)}. Reload the page to refresh.
+        </p>
+
+        {sections.map((s) => (
+          <section class="card" aria-labelledby={`h-${s.id}`}>
+            <h2 id={`h-${s.id}`}>{s.title} ({s.items.length})</h2>
+            <p class="muted">{s.hint}</p>
+            {s.items.length === 0 ? (
+              <p>{s.empty}</p>
+            ) : (
+              <div class="table-wrap" role="region" aria-label={s.title} tabindex="0">
+                <table class="stack">
+                  <caption class="sr-only">{s.title} incidents</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Incident</th>
+                      <th scope="col">Priority</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Assignee</th>
+                      <th scope="col">Deadline</th>
+                      <th scope="col">Why</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.items.map((i) => (
+                      <tr>
+                        <td data-label="Incident">
+                          <a href={`/incidents/${i.incidentId}`}>{i.number}</a> {i.title}
+                          {i.serviceName && <span class="muted"> ({i.serviceName})</span>}
+                        </td>
+                        <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>
+                        <td data-label="Status"><IncidentStatusBadge status={i.status} /></td>
+                        <td data-label="Assignee">{i.assignee?.fullName ?? 'Unassigned'}</td>
+                        <td data-label="Deadline">
+                          <span class={deadlineBadgeClass(s.state)}>{remainingText(i.minutesRemaining)}</span>
+                          <br />
+                          <span class="muted">{i.dueKind === 'RESPONSE' ? 'Response' : 'Resolution'} by <time datetime={i.dueAt}>{formatDateTime(i.dueAt)}</time></span>
+                        </td>
+                        <td data-label="Why">
+                          {i.reasons.length > 1 ? (
+                            <ul class="plain-list">{i.reasons.map((r) => <li>{r}</li>)}</ul>
+                          ) : (
+                            i.riskReason
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        ))}
+      </>
+    )
+  }
+
+  {
+    !error && (
+      <section class="card" aria-labelledby="h-clusters">
+        <h2 id="h-clusters">Possible major incidents ({clusters.length})</h2>
+        <p class="muted">
+          Three or more open incidents reported for the same service (or category, when no service is given) within a short time probably share a cause.
+        </p>
+        {clustersFailed && <p class="muted">The clusters could not be loaded right now.</p>}
+        {!clustersFailed && clusters.length === 0 && <p>No clusters of related incidents right now.</p>}
+        {clusters.map((c) => (
+          <article class="cluster">
+            <h3>{c.label}</h3>
+            <p>
+              {clusterSummary(c)}. First reported {formatDateTime(c.firstAt)}, latest {formatDateTime(c.lastAt)}.
+            </p>
+            <ul class="plain-list">
+              {c.incidents.map((m) => (
+                <li>
+                  <a href={`/incidents/${m.id}`}>{m.number}</a> {m.title} <IncidentStatusBadge status={m.status} />
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </section>
+    )
+  }
+</Layout>
+
+<style>
+  .cluster { border-top: 1px solid var(--border); padding-top: 0.5rem; }
+  .cluster h3 { margin: 0.25rem 0; }
+</style>

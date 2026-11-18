@@ -3,10 +3,12 @@ import Layout from '../../layouts/Layout.astro';
 import Alert from '../../components/Alert.astro';
 import IncidentTable from '../../components/IncidentTable.astro';
 import { backendFor } from '../../lib/backend';
-import { PAGE_BOUNDS, parseOptionalInt, pluralize } from '../../lib/forms';
+import { PAGE_BOUNDS, formatDateTime, lookupNotice, parseOptionalInt, pluralize } from '../../lib/forms';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
 import { handleLoadError } from '../../lib/loadError';
-import { parseTab } from '../../lib/incidents';
-import type { IncidentSummary } from '../../lib/incidentTypes';
+import { parseTab, statusLabel } from '../../lib/incidents';
+import { LIST_NOTICES, capacityText, deadlineBadgeClass, deadlineLabel, loadPercent, markersFromWorkload, parseAvailabilityForm, statusCounts } from '../../lib/ops';
+import type { IncidentSummary, TechnicianWorkload } from '../../lib/incidentTypes';
 import type { PageResponse } from '../../lib/types';
 import { loginUrl } from '../../lib/redirect';
 
@@ -21,6 +23,42 @@ const api = backendFor(Astro.cookies);
 
 let result: PageResponse<IncidentSummary> | null = null;
 let error: string | null = null;
+
+// A technician switches their availability with a plain form post (works without JavaScript); then redirect (PRG).
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  try {
+    const out = await dispatchIntent<Response | undefined>(form, {
+      availability: async (f) => {
+        const available = parseAvailabilityForm(f);
+        if (available === undefined) {
+          error = 'Choose whether you are available.';
+          Astro.response.status = 400;
+          return undefined;
+        }
+        await api.setAvailability(available);
+        return Astro.redirect(`/incidents?tab=assigned&notice=${available ? 'availability-on' : 'availability-off'}`);
+      },
+    });
+    if (!out.known) {
+      error = UNKNOWN_INTENT_MESSAGE;
+      Astro.response.status = 400;
+    } else if (out.value) return out.value;
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    error = r.userMessage;
+    Astro.response.status = r.status;
+  }
+}
+const notice = lookupNotice(LIST_NOTICES, Astro.request.method === 'GET' ? params.get('notice') : null);
+
+// The workload card is extra information: if it cannot be loaded the list is still shown.
+let workload: TechnicianWorkload | null = null;
+if (isTech && tab === 'assigned') {
+  workload = await api.myWorkload().catch(() => null);
+}
+const markers = markersFromWorkload(workload);
 try {
   result = tab === 'assigned' ? await api.assignedIncidents({ page, size: 15 }) : await api.myIncidents({ page, size: 15 });
 } catch (e) {
@@ -63,7 +101,44 @@ const heading = tab === 'assigned' ? 'Assigned to me' : 'My incidents';
     )
   }
 
+  {notice && <Alert kind="success">{notice}</Alert>}
   {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    workload && (
+      <section class="card workload" aria-labelledby="h-workload">
+        <div class="row-between">
+          <h2 id="h-workload">My workload</h2>
+          <form method="post" action="/incidents?tab=assigned" class="inline-form">
+            <input type="hidden" name="intent" value="availability" />
+            <input type="hidden" name="available" value={String(!workload.available)} />
+            <span class={workload.available ? 'badge badge-success' : 'badge badge-neutral'}>{workload.available ? 'Available' : 'Unavailable'}</span>
+            <button type="submit" class="btn btn-secondary btn-small">{workload.available ? 'Mark me unavailable' : 'Mark me available'}</button>
+          </form>
+        </div>
+        <p class="load-line">
+          <strong>{capacityText(workload)}</strong>
+          {workload.overCapacity && <span class="badge badge-danger overdue">Over capacity</span>}
+        </p>
+        <meter min="0" max="100" low="60" high="85" optimum="0" value={loadPercent(workload.activeCount, workload.capacity)} aria-label="Share of capacity in use">
+          {loadPercent(workload.activeCount, workload.capacity)}%
+        </meter>
+        <dl class="details">
+          <dt>Next deadline</dt>
+          <dd>{workload.nextDueAt ? <time datetime={workload.nextDueAt}>{formatDateTime(workload.nextDueAt)}</time> : 'No deadlines'}</dd>
+          <dt>Needs attention</dt>
+          <dd>
+            {workload.overdueCount === 0 && workload.atRiskCount === 0 && 'Nothing is overdue or at risk.'}
+            {workload.overdueCount > 0 && <span class={deadlineBadgeClass('OVERDUE')}>{deadlineLabel('OVERDUE')}: {workload.overdueCount}</span>}
+            {workload.atRiskCount > 0 && <span class={deadlineBadgeClass('AT_RISK')}>{deadlineLabel('AT_RISK')}: {workload.atRiskCount}</span>}
+          </dd>
+          <dt>By status</dt>
+          <dd>{statusCounts(workload).map((s) => `${statusLabel(s.status)}: ${s.count}`).join(', ') || 'No active incidents'}</dd>
+        </dl>
+        {!workload.available && <p class="hint">While you are unavailable new incidents are not assigned to you automatically.</p>}
+      </section>
+    )
+  }
 
   {
     result && (
@@ -75,7 +150,7 @@ const heading = tab === 'assigned' ? 'Assigned to me' : 'My incidents';
             {tab === 'mine' && <p><a href="/incidents/new">Report an incident</a></p>}
           </div>
         ) : (
-          <IncidentTable incidents={result.content} caption={heading} />
+          <IncidentTable incidents={result.content} caption={heading} markers={markers} />
         )}
         <nav class="pager" aria-label="Pagination">
           {result.page > 0 ? <a href={pageHref(result.page - 1)} rel="prev">Previous</a> : <span class="muted">Previous</span>}
@@ -86,3 +161,11 @@ const heading = tab === 'assigned' ? 'Assigned to me' : 'My incidents';
     )
   }
 </Layout>
+
+<style>
+  .workload { margin-bottom: 1rem; }
+  .workload h2 { margin: 0; }
+  .workload meter { width: 100%; max-width: 24rem; height: 0.9rem; }
+  .load-line { margin: 0.5rem 0 0.25rem; }
+  .workload .badge + .badge { margin-left: 0.4rem; }
+</style>

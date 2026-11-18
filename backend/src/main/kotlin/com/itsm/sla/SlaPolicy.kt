@@ -1,6 +1,7 @@
 package com.itsm.sla
 
 import com.itsm.common.exception.ItsmException
+import com.itsm.common.exception.domainRequire
 import com.itsm.incident.Priority
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -26,24 +27,61 @@ class SlaPolicy(
     @Column(name = "priority", nullable = false)
     val priority: Priority,
 
-    @Column(name = "response_minutes", nullable = false)
-    val responseMinutes: Int,
-
-    @Column(name = "resolution_minutes", nullable = false)
-    val resolutionMinutes: Int,
-
-    /** Percentage of the time window after which a warning is raised. */
-    @Column(name = "warning_threshold_pct", nullable = false)
-    val warningThresholdPct: Int = 75,
+    responseMinutes: Int,
+    resolutionMinutes: Int,
+    warningThresholdPct: Int = DEFAULT_WARNING_PCT,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null
+
+    @Column(name = "response_minutes", nullable = false)
+    final var responseMinutes: Int = responseMinutes
+        private set
+
+    @Column(name = "resolution_minutes", nullable = false)
+    final var resolutionMinutes: Int = resolutionMinutes
+        private set
+
+    /** Percentage of the time window after which a warning is raised. */
+    @Column(name = "warning_threshold_pct", nullable = false)
+    final var warningThresholdPct: Int = warningThresholdPct
+        private set
+
+    init {
+        validate(responseMinutes, resolutionMinutes, warningThresholdPct)
+    }
+
+    val isDefault: Boolean get() = serviceId == null
+
+    /**
+     * Changes the targets. Only incidents whose deadlines are computed afterwards (new or re-prioritised ones) see the
+     * new values; deadlines already stored on incidents are not recalculated.
+     */
+    fun update(responseMinutes: Int, resolutionMinutes: Int, warningThresholdPct: Int) {
+        validate(responseMinutes, resolutionMinutes, warningThresholdPct)
+        this.responseMinutes = responseMinutes
+        this.resolutionMinutes = resolutionMinutes
+        this.warningThresholdPct = warningThresholdPct
+    }
+
+    companion object {
+        const val DEFAULT_WARNING_PCT = 75
+        const val MAX_MINUTES = 525_600 // one year
+
+        fun validate(responseMinutes: Int, resolutionMinutes: Int, warningThresholdPct: Int) {
+            domainRequire(responseMinutes in 1..MAX_MINUTES) { "Response time must be between 1 and $MAX_MINUTES minutes" }
+            domainRequire(resolutionMinutes in 1..MAX_MINUTES) { "Resolution time must be between 1 and $MAX_MINUTES minutes" }
+            domainRequire(resolutionMinutes >= responseMinutes) { "Resolution time must not be shorter than the response time" }
+            domainRequire(warningThresholdPct in 1..99) { "Warning threshold must be between 1 and 99 percent" }
+        }
+    }
 }
 
 interface SlaPolicyRepository : JpaRepository<SlaPolicy, Long> {
     fun findByServiceIdAndPriority(serviceId: Long, priority: Priority): SlaPolicy?
     fun findByServiceIdIsNullAndPriority(priority: Priority): SlaPolicy?
+    fun existsByServiceIdAndPriority(serviceId: Long, priority: Priority): Boolean
 }
 
 /** No policy (not even the default one) exists for a priority; only possible if the seeded defaults were deleted. */

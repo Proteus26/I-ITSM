@@ -74,6 +74,14 @@ data class IncidentResolved(
     override val incidentId: Long, override val actorId: Long?, val summary: String? = null,
 ) : IncidentEvent()
 
+/**
+ * An incident's own data was edited (title, description, impact, urgency, affected users or service).
+ * [changedFields] are the names of the fields that really changed, for example ["impact", "urgency"].
+ */
+data class IncidentUpdated(
+    override val incidentId: Long, override val actorId: Long?, val changedFields: List<String>,
+) : IncidentEvent()
+
 data class IncidentClosed(
     override val incidentId: Long, override val actorId: Long?,
 ) : IncidentEvent()

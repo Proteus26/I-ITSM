@@ -109,7 +109,7 @@ class SlaMonitorTest @Autowired constructor(
         assertThat(monitor.runOnce(minutes(62))).isZero()
         assertThat(types(id)).containsExactly("WARNING", "RESPONSE_BREACH")
         assertThat(events.stream(SlaBreached::class.java).map { it.breachType }.toList()).containsExactly("RESPONSE_BREACH")
-        assertThat(events.stream(IncidentEscalated::class.java).map { it.level }.toList()).containsExactly("REASSIGN_REQUESTED")
+        assertThat(events.stream(IncidentEscalated::class.java).map { it.level }.toList()).containsExactly("ADMIN") // no team lead exists, so the chain falls through to the administrators
         assertThat(jdbc.queryForObject("select count(*) from audit_log where incident_id = ? and action = 'SLA_BREACHED'", Int::class.java, id)).isEqualTo(1)
     }
 

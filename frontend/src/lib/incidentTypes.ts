@@ -16,7 +16,7 @@ export type NoteType = (typeof NOTE_TYPES)[number];
 /** What the current viewer may do now (IncidentDetail.actions). Unknown values from a newer backend are ignored. */
 export const INCIDENT_ACTIONS = [
   'ACKNOWLEDGE', 'START', 'REQUEST_INFO', 'RESUME', 'RESOLVE', 'VERIFY', 'REOPEN', 'CLOSE', 'CANCEL',
-  'FEEDBACK', 'ASSIGN', 'CLASSIFY',
+  'FEEDBACK', 'ASSIGN', 'CLASSIFY', 'EDIT',
 ] as const;
 export type IncidentAction = (typeof INCIDENT_ACTIONS)[number];
 
@@ -60,6 +60,8 @@ export interface IncidentDetail extends IncidentSummary {
   version: number;
   actions: string[];
   noteTypes: string[];
+  /** Request fields of PATCH /api/incidents/{id} the viewer may change (empty unless EDIT is in `actions`). */
+  editableFields?: string[];
 }
 
 export interface IncidentNote {
@@ -78,6 +80,17 @@ export interface CreateIncidentRequest {
   affectedUsers: number;
   serviceId?: number;
   categoryCode?: string;
+}
+
+/** PATCH /api/incidents/{id}: only the given fields change; `clearService` removes the service. */
+export interface UpdateIncidentRequest {
+  title?: string;
+  description?: string;
+  impact?: Impact;
+  urgency?: Urgency;
+  affectedUsers?: number;
+  serviceId?: number;
+  clearService?: boolean;
 }
 
 export interface AddNoteRequest {
@@ -183,4 +196,95 @@ export interface SimilarQuery {
 export interface RecommendationQuery {
   category?: string;
   priority?: Priority;
+}
+
+// ---- incident operations: workload, SLA risk, correlation ----
+
+export const DEADLINE_STATES = ['OVERDUE', 'AT_RISK', 'ON_TRACK'] as const;
+export type DeadlineState = (typeof DEADLINE_STATES)[number];
+
+export interface WorkloadIncident {
+  id: number;
+  number: string;
+  title: string;
+  status: IncidentStatus;
+  priority: Priority | null;
+  responseDueAt: string | null;
+  resolutionDueAt: string | null;
+  deadlineState: DeadlineState;
+  riskReason: string | null;
+}
+
+/** GET /api/incidents/workload (technicians). */
+export interface TechnicianWorkload {
+  technicianId: number;
+  fullName: string;
+  available: boolean;
+  activeCount: number;
+  capacity: number;
+  overCapacity: boolean;
+  countsByStatus: Record<string, number>;
+  nextDueAt: string | null;
+  overdueCount: number;
+  atRiskCount: number;
+  incidents: WorkloadIncident[];
+}
+
+export interface SlaRiskItem {
+  incidentId: number;
+  number: string;
+  title: string;
+  status: IncidentStatus;
+  priority: Priority | null;
+  serviceName: string | null;
+  assignee: PersonRef | null;
+  state: 'BREACHED' | 'AT_RISK';
+  riskReason: string;
+  reasons: string[];
+  dueKind: 'RESPONSE' | 'RESOLUTION';
+  dueAt: string;
+  /** Negative when the deadline has passed. */
+  minutesRemaining: number;
+  percentElapsed: number;
+}
+
+/** GET /api/admin/sla/at-risk. */
+export interface SlaRiskReport {
+  generatedAt: string;
+  breached: SlaRiskItem[];
+  atRisk: SlaRiskItem[];
+}
+
+export interface ClusterMember {
+  id: number;
+  number: string;
+  title: string;
+  status: IncidentStatus;
+  createdAt: string;
+}
+
+/** GET /api/admin/correlations: possible major incidents. */
+export interface IncidentCluster {
+  key: string;
+  kind: 'SERVICE' | 'CATEGORY';
+  label: string;
+  serviceId: number | null;
+  categoryCode: string | null;
+  count: number;
+  firstAt: string;
+  lastAt: string;
+  windowMinutes: number;
+  incidentIds: number[];
+  incidentNumbers: string[];
+  incidents: ClusterMember[];
+}
+
+/** GET /api/incidents/{id}/related (204 when the incident is in no cluster). */
+export interface RelatedIncidents {
+  key: string;
+  kind: 'SERVICE' | 'CATEGORY';
+  label: string;
+  totalCount: number;
+  windowMinutes: number;
+  related: ClusterMember[];
 }

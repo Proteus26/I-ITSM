@@ -11,16 +11,22 @@ import { formErrorState, formatDateTime, formString, lookupNotice } from '../../
 import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
 import { handleLoadError } from '../../lib/loadError';
 import { humanize } from '../../lib/p4';
+import { formatSpan } from '../../lib/ops';
 import {
   ACTION_INTENT,
   ACTION_LABEL,
   CONFIRM_MESSAGE,
+  IMPACT_HINT,
+  IMPACT_OPTIONS,
   MAX_FEEDBACK_COMMENT,
   MAX_ROOT_CAUSE,
   MAX_TEXT,
+  MAX_TITLE,
   NOTICES,
   NOTE_TYPE_LABEL,
   SIMPLE_ACTIONS,
+  URGENCY_HINT,
+  URGENCY_OPTIONS,
   allowedNoteTypes,
   dueInfo,
   impactLabel,
@@ -42,10 +48,13 @@ import type {
   IncidentDetail,
   IncidentNote,
   ReasonRequest,
+  RelatedIncidents,
   RequestInfoRequest,
   ResolveRequest,
   ResumeRequest,
+  ServiceSummary,
   TechnicianRecommendation,
+  UpdateIncidentRequest,
 } from '../../lib/incidentTypes';
 import type { UserResponse } from '../../lib/types';
 
@@ -86,6 +95,7 @@ function callAction(action: IncidentAction, body: ActionBody): Promise<unknown> 
     case 'FEEDBACK': return api.submitFeedback(id, body as FeedbackRequest);
     case 'CLASSIFY': return api.classifyIncident(id, body as ClassifyRequest);
     case 'ASSIGN': return api.assignIncident(id, body as AssignRequest);
+    case 'EDIT': return api.updateIncident(id, body as UpdateIncidentRequest);
   }
 }
 
@@ -105,7 +115,7 @@ if (incident && Astro.request.method === 'POST') {
   for (const action of Object.keys(ACTION_INTENT) as IncidentAction[]) {
     handlers[ACTION_INTENT[action]] = async (f) => {
       if (!current.actions.includes(action)) return void fail('This action is not available for the incident right now.', {}, 409);
-      const parsed = parseActionForm(action, f);
+      const parsed = parseActionForm(action, f, current.editableFields ?? []);
       if (!parsed.ok) return void fail('Please fix the highlighted fields.', parsed.errors);
       await callAction(action, parsed.value);
       return Astro.redirect(`${here}?notice=${ACTION_INTENT[action]}`);
@@ -145,13 +155,16 @@ let notesFailed = false;
 let categories: CategorySummary[] = [];
 let technicians: UserResponse[] = [];
 let recommendations: TechnicianRecommendation[] = [];
+let services: ServiceSummary[] = [];
+let related: RelatedIncidents | undefined;
 const actions = visibleActions(incident?.actions);
 const noteTypes = allowedNoteTypes(incident?.noteTypes);
 
 if (incident) {
   const inc = incident;
   const settle = async <T,>(p: Promise<T>, fallback: T): Promise<T> => p.catch(() => fallback);
-  [notes, categories, technicians, recommendations] = await Promise.all([
+  const canEditService = actions.includes('EDIT') && (inc.editableFields ?? []).includes('serviceId');
+  [notes, categories, technicians, recommendations, services, related] = await Promise.all([
     api.incidentNotes(id).catch(() => { notesFailed = true; return [] as IncidentNote[]; }),
     actions.includes('CLASSIFY') ? settle(api.listCategories(), [] as CategorySummary[]) : Promise.resolve([] as CategorySummary[]),
     actions.includes('ASSIGN')
@@ -160,6 +173,8 @@ if (incident) {
     actions.includes('ASSIGN')
       ? settle(api.assignmentRecommendations({ category: inc.categoryCode ?? undefined, priority: inc.priority ?? undefined }), [] as TechnicianRecommendation[])
       : Promise.resolve([] as TechnicianRecommendation[]),
+    canEditService ? settle(api.listServices(), [] as ServiceSummary[]) : Promise.resolve([] as ServiceSummary[]),
+    !isFinished(inc.status) ? settle(api.relatedIncidents(id), undefined) : Promise.resolve(undefined),
   ]);
 }
 
@@ -175,7 +190,14 @@ const finished = incident ? isFinished(incident.status) : false;
 const responseDue = incident ? dueInfo(incident.responseDueAt, finished || !!incident.acknowledgedAt, now) : null;
 const resolutionDue = incident ? dueInfo(incident.resolutionDueAt, finished, now) : null;
 const simple = actions.filter((a) => SIMPLE_ACTIONS.includes(a));
-const withForm = actions.filter((a) => !SIMPLE_ACTIONS.includes(a) && a !== 'ASSIGN' && a !== 'CLASSIFY');
+const withForm = actions.filter((a) => !SIMPLE_ACTIONS.includes(a) && a !== 'ASSIGN' && a !== 'CLASSIFY' && a !== 'EDIT');
+const editable = incident?.editableFields ?? [];
+const canEdit = (f: string) => editable.includes(f);
+const serviceOptions = [{ value: '', label: 'None / not listed' }, ...services.map((s) => ({ value: String(s.id), label: s.name }))];
+// A service that was deactivated since is still shown (so saving does not silently clear it).
+if (incident?.serviceId && !services.some((s) => s.id === incident!.serviceId)) {
+  serviceOptions.push({ value: String(incident.serviceId), label: incident.serviceName ?? `Service ${incident.serviceId}` });
+}
 const categoryOptions = [{ value: '', label: 'Choose a category' }, ...categories.map((c) => ({ value: c.code, label: `${c.name} (${c.code})` }))];
 const technicianOptions = [
   { value: '', label: 'Choose a technician' },
@@ -380,6 +402,50 @@ const technicianOptions = [
                   )
                 }
               </div>
+            </section>
+          )
+        }
+
+        {
+          actions.includes('EDIT') && (
+            <section class="card" aria-labelledby="h-edit">
+              <h2 id="h-edit">Edit incident</h2>
+              <details open={submitted?.intent === 'edit'}>
+                <summary>Change the details</summary>
+                <form method="post" action={here}>
+                  <input type="hidden" name="intent" value="edit" />
+                  <p class="hint">
+                    Changing the impact, urgency, affected users or service recalculates the priority and the SLA deadlines.
+                    {!canEdit('title') && ' Once work has started the title and description can no longer be changed.'}
+                  </p>
+                  {canEdit('title') && <FormField idPrefix="edit" name="title" label="Title" value={val('edit', 'title', incident.title)} error={errs('edit').title} required maxlength={MAX_TITLE} />}
+                  {canEdit('description') && <TextAreaField idPrefix="edit" name="description" label="Description" value={val('edit', 'description', incident.description)} error={errs('edit').description} required maxlength={MAX_TEXT} rows={6} />}
+                  {canEdit('impact') && <FormField idPrefix="edit" name="impact" label="Impact" value={val('edit', 'impact', incident.impact)} error={errs('edit').impact} options={IMPACT_OPTIONS} hint={IMPACT_HINT} required />}
+                  {canEdit('urgency') && <FormField idPrefix="edit" name="urgency" label="Urgency" value={val('edit', 'urgency', incident.urgency)} error={errs('edit').urgency} options={URGENCY_OPTIONS} hint={URGENCY_HINT} required />}
+                  {canEdit('affectedUsers') && <FormField idPrefix="edit" name="affectedUsers" label="Affected users" type="number" min={1} value={val('edit', 'affectedUsers', String(incident.affectedUsers))} error={errs('edit').affectedUsers} required />}
+                  {canEdit('serviceId') && <FormField idPrefix="edit" name="serviceId" label="Service" value={val('edit', 'serviceId', incident.serviceId ? String(incident.serviceId) : '')} error={errs('edit').serviceId} options={serviceOptions} />}
+                  <button type="submit" class="btn">Save changes</button>
+                </form>
+              </details>
+            </section>
+          )
+        }
+
+        {
+          related && related.related.length > 0 && (
+            <section class="card" aria-labelledby="h-related">
+              <h2 id="h-related">Related incidents</h2>
+              <p class="muted">
+                {related.totalCount} open incidents were reported for {related.kind === 'SERVICE' ? related.label : `the category ${related.label}`} in the last
+                {' '}{formatSpan(related.windowMinutes)}. They may have a common cause.
+              </p>
+              <ul class="plain-list">
+                {related.related.map((r) => (
+                  <li>
+                    <a href={`/incidents/${r.id}`}>{r.number}</a>: {r.title} <IncidentStatusBadge status={r.status} />
+                  </li>
+                ))}
+              </ul>
             </section>
           )
         }
