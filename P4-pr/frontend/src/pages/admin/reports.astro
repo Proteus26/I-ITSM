@@ -1,0 +1,115 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import ChartCanvas from '../../components/ChartCanvas.astro';
+import { backendFor } from '../../lib/backend';
+import { handleLoadError } from '../../lib/loadError';
+import type {
+  MttrRow,
+  OverviewReport,
+  ServiceCount,
+  SlaCompliance,
+  TrendPoint,
+  WorkloadRow,
+} from '../../lib/p4Types';
+
+// ADMIN only: the /admin rule in src/lib/access.ts, and the backend checks the role again.
+const TREND_DAYS = 30;
+const api = backendFor(Astro.cookies);
+
+let overview: OverviewReport | null = null;
+let workload: WorkloadRow[] = [];
+let byService: ServiceCount[] = [];
+let sla: SlaCompliance | null = null;
+let mttr: MttrRow[] = [];
+let trend: TrendPoint[] = [];
+let error: string | null = null;
+
+try {
+  [overview, workload, byService, sla, mttr, trend] = await Promise.all([
+    api.reportOverview(),
+    api.reportWorkload(),
+    api.reportByService(),
+    api.reportSlaCompliance(),
+    api.reportMttr(),
+    api.reportTrend(TREND_DAYS),
+  ]);
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+const tiles = overview
+  ? [
+      { label: 'Total incidents', value: overview.total },
+      { label: 'Open', value: overview.open },
+      { label: 'Critical (open P1)', value: overview.critical, alert: overview.critical > 0 },
+      { label: 'Resolved', value: overview.resolved },
+      { label: 'SLA violations', value: overview.slaViolations, alert: overview.slaViolations > 0 },
+      ...(sla ? [{ label: 'Within SLA', value: `${sla.percentage}%` }] : []),
+    ]
+  : [];
+---
+
+<Layout title="Reports · I-ITSM">
+  <h1>Reports</h1>
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    overview && (
+      <>
+        <ul class="tiles" aria-label="Summary">
+          {tiles.map((t) => (
+            <li class:list={['card', 'tile', { alert: t.alert }]}>
+              <span class="tile-label">{t.label}</span>
+              <span class="tile-value">{t.value}</span>
+            </li>
+          ))}
+        </ul>
+
+        <div class="charts">
+          <ChartCanvas
+            title={`Incidents per day (last ${TREND_DAYS} days)`}
+            kind="line"
+            series="Incidents"
+            labels={trend.map((p) => p.date)}
+            values={trend.map((p) => p.count)}
+          />
+          <ChartCanvas
+            title="Incidents by service"
+            kind="bar"
+            series="Incidents"
+            labels={byService.map((s) => s.serviceName)}
+            values={byService.map((s) => s.incidents)}
+          />
+          <ChartCanvas
+            title="Active incidents per technician"
+            kind="bar"
+            series="Active incidents"
+            labels={workload.map((w) => w.technicianName)}
+            values={workload.map((w) => w.activeIncidents)}
+          />
+          <ChartCanvas
+            title="Mean time to resolve (minutes)"
+            kind="bar"
+            series="Minutes"
+            labels={mttr.map((m) => m.priority)}
+            values={mttr.map((m) => m.meanMinutes)}
+          />
+        </div>
+        <p class="muted">Dates are UTC days. Mean time to resolve counts incidents that currently have a resolution time.</p>
+      </>
+    )
+  }
+</Layout>
+
+<style>
+  .tiles { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: 0.25rem; margin: 0; }
+  .tile-label { color: var(--muted, #667085); font-size: 0.85rem; }
+  .tile-value { font-size: 1.9rem; font-weight: 600; }
+  .tile.alert .tile-value { color: var(--danger, #b42318); }
+  .charts { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); margin-bottom: 1rem; }
+</style>

@@ -1,0 +1,81 @@
+---
+// A small Chart.js chart. The data is rendered by the server; the chart itself is drawn in the browser.
+// Needs the dependency:  npm install chart.js
+// The same numbers are also available as a table (for screen readers and for anyone who prefers numbers).
+interface Props {
+  title: string;
+  kind: 'bar' | 'line';
+  labels: string[];
+  values: (number | null)[];
+  /** Name of the series, e.g. "Incidents". */
+  series: string;
+}
+const { title, kind, labels, values, series } = Astro.props;
+const config = JSON.stringify({ kind, labels, values, series });
+---
+
+<figure class="chart card">
+  <figcaption>{title}</figcaption>
+  {
+    labels.length === 0 ? (
+      <p class="muted">No data yet.</p>
+    ) : (
+      <>
+        <div class="canvas-wrap">
+          <canvas data-chart={config} role="img" aria-label={`${title}. The same data is in the table below.`}></canvas>
+        </div>
+        <details>
+          <summary>Show as table</summary>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Label</th>
+                <th scope="col">{series}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {labels.map((label, i) => (
+                <tr>
+                  <td>{label}</td>
+                  <td>{values[i] ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      </>
+    )
+  }
+</figure>
+
+<script>
+  import Chart from 'chart.js/auto';
+
+  const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2556d9';
+
+  document.querySelectorAll<HTMLCanvasElement>('canvas[data-chart]').forEach((canvas) => {
+    const { kind, labels, values, series } = JSON.parse(canvas.dataset.chart ?? '{}');
+    new Chart(canvas, {
+      type: kind,
+      data: {
+        labels,
+        datasets: [
+          { label: series, data: values, backgroundColor: primary, borderColor: primary, borderWidth: 2, tension: 0.25 },
+        ],
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+      },
+    });
+  });
+</script>
+
+<style>
+  .chart { margin: 0; }
+  figcaption { font-weight: 600; margin-bottom: 0.5rem; }
+  .canvas-wrap { position: relative; height: 16rem; }
+  details { margin-top: 0.75rem; }
+  table { width: 100%; }
+</style>

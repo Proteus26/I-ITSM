@@ -1,0 +1,119 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import { backendFor } from '../../lib/backend';
+import { formatDateTime, PAGE_BOUNDS, parseOptionalInt, pluralize } from '../../lib/forms';
+import { handleLoadError } from '../../lib/loadError';
+import { AUDIT_ACTIONS, cleanAuditQuery, toQueryString } from '../../lib/p4';
+import type { AuditEntry } from '../../lib/p4Types';
+import type { PageResponse } from '../../lib/types';
+
+// ADMIN only: the /admin rule in src/lib/access.ts, and the backend checks the role again.
+const params = Astro.url.searchParams;
+const query = cleanAuditQuery(params);
+const page = parseOptionalInt(params.get('page') ?? '', PAGE_BOUNDS) ?? 0;
+
+let result: PageResponse<AuditEntry> | null = null;
+let error: string | null = null;
+try {
+  result = await backendFor(Astro.cookies).searchAudit({ ...query, page, size: 25 });
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+if (result && result.totalPages > 0 && page >= result.totalPages) {
+  return Astro.redirect(pageHref(result.totalPages - 1));
+}
+
+const filtered = Object.values(query).some((v) => v !== undefined);
+
+function pageHref(p: number): string {
+  return `/admin/audit?${toQueryString(query, p)}`;
+}
+
+const label = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+---
+
+<Layout title="Audit log · I-ITSM">
+  <h1>Audit log</h1>
+
+  <form method="get" action="/admin/audit" class="card filters" role="search" aria-label="Filter the audit log">
+    <div class="field">
+      <label for="f-actor">Actor (user ID)</label>
+      <input id="f-actor" name="actor" type="number" min="1" value={query.actor ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-action">Action</label>
+      <select id="f-action" name="action">
+        <option value="">Any</option>
+        {AUDIT_ACTIONS.map((a) => <option value={a} selected={a === query.action}>{label(a)}</option>)}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-incident">Incident ID</label>
+      <input id="f-incident" name="incident" type="number" min="1" value={query.incident ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-from">From</label>
+      <input id="f-from" name="from" type="date" value={query.from ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-to">To</label>
+      <input id="f-to" name="to" type="date" value={query.to ?? ''} />
+    </div>
+    <div class="filter-actions">
+      <button class="btn" type="submit">Filter</button>
+      <a href="/admin/audit">Reset</a>
+    </div>
+  </form>
+
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    result && (
+      <>
+        <p class="muted">{pluralize(result.totalElements, 'entry')}</p>
+        {result.content.length === 0 ? (
+          <div class="card empty-state">
+            <p>{filtered ? 'No audit entries match these filters.' : 'Nothing has been recorded yet.'}</p>
+            {filtered && <p><a href="/admin/audit">Clear filters</a></p>}
+          </div>
+        ) : (
+          <div class="table-wrap" role="region" aria-label="Audit log" tabindex="0">
+            <table class="stack">
+              <caption class="sr-only">Audit log</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">What happened</th>
+                  <th scope="col">Status change</th>
+                  <th scope="col">Incident</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.content.map((a) => (
+                  <tr>
+                    <td data-label="Time"><time datetime={a.occurredAt}>{formatDateTime(a.occurredAt)}</time></td>
+                    <td data-label="Action">{label(a.action)}</td>
+                    <td data-label="What happened">{a.description}</td>
+                    <td data-label="Status change">{a.fromState && a.toState ? `${label(a.fromState)} → ${label(a.toState)}` : '—'}</td>
+                    <td data-label="Incident">{a.incidentId ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <nav class="pager" aria-label="Pagination">
+          {result.page > 0 ? <a href={pageHref(result.page - 1)} rel="prev">Previous</a> : <span class="muted">Previous</span>}
+          <span>Page {result.page + 1} of {Math.max(result.totalPages, 1)}</span>
+          {result.page + 1 < result.totalPages ? <a href={pageHref(result.page + 1)} rel="next">Next</a> : <span class="muted">Next</span>}
+        </nav>
+      </>
+    )
+  }
+</Layout>

@@ -1,0 +1,44 @@
+---
+// Timeline for P2's incident detail page:  <IncidentTimeline incidentId={incident.id} />
+// Loads GET /api/incidents/{id}/history. If that fails, the rest of the page is unaffected.
+import { backendFor } from '../lib/backend';
+import { formatDateTime } from '../lib/forms';
+import type { AuditEntry } from '../lib/p4Types';
+
+interface Props {
+  incidentId: number;
+}
+const { incidentId } = Astro.props;
+
+let entries: AuditEntry[] = [];
+let failed = false;
+try {
+  entries = await backendFor(Astro.cookies).incidentHistory(incidentId);
+} catch {
+  failed = true;
+}
+---
+
+<section class="card" aria-labelledby="h-timeline">
+  <h2 id="h-timeline">Timeline</h2>
+  {failed && <p class="muted">The timeline could not be loaded right now.</p>}
+  {!failed && entries.length === 0 && <p class="muted">Nothing has happened yet.</p>}
+  {
+    entries.length > 0 && (
+      <ol class="timeline">
+        {entries.map((e) => (
+          <li>
+            <time datetime={e.occurredAt}>{formatDateTime(e.occurredAt)}</time>
+            <span>{e.description}</span>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+</section>
+
+<style>
+  .timeline { list-style: none; margin: 0; padding: 0; }
+  .timeline li { display: flex; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+  .timeline time { color: var(--muted, #667085); white-space: nowrap; }
+</style>
