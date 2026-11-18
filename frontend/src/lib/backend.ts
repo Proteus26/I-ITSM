@@ -30,6 +30,7 @@ import type {
   WorkloadRow,
 } from './p4Types';
 import { toQueryString } from './p4';
+import type { CreateServiceRequest, CreateSlaPolicyRequest, SlaPolicy, UpdateSlaPolicyRequest } from './adminTypes';
 import type {
   AddNoteRequest,
   AdminCategory,
@@ -53,8 +54,13 @@ import type {
   SettingItem,
   SimilarIncident,
   SimilarQuery,
+  IncidentCluster,
+  RelatedIncidents,
+  SlaRiskReport,
   TechnicianRecommendation,
+  TechnicianWorkload,
   UpdateCategoryRequest,
+  UpdateIncidentRequest,
   UpdateServiceRequest,
 } from './incidentTypes';
 
@@ -269,6 +275,36 @@ export class BackendClient {
     return this.request('GET', `/api/incidents/${id}`);
   }
 
+  /** Partial update (PATCH): only the given fields change. */
+  updateIncident(id: number, req: UpdateIncidentRequest): Promise<IncidentDetail> {
+    return this.request('PATCH', `/api/incidents/${id}`, req);
+  }
+
+  /** The signed-in technician's workload (403 for other roles). */
+  myWorkload(): Promise<TechnicianWorkload> {
+    return this.request('GET', '/api/incidents/workload');
+  }
+
+  /** Technicians only: (un)available for automatic assignment. */
+  setAvailability(available: boolean): Promise<{ available: boolean }> {
+    return this.request('PATCH', '/api/me/availability', { available });
+  }
+
+  /** The cluster the incident belongs to, or undefined (204) when it is in none. */
+  relatedIncidents(id: number): Promise<RelatedIncidents | undefined> {
+    return this.request('GET', `/api/incidents/${id}/related`);
+  }
+
+  /** Admin: open incidents that breached their SLA or are predicted to. */
+  slaAtRisk(): Promise<SlaRiskReport> {
+    return this.request('GET', '/api/admin/sla/at-risk');
+  }
+
+  /** Admin: clusters of open incidents that probably share a cause. */
+  correlations(): Promise<IncidentCluster[]> {
+    return this.request('GET', '/api/admin/correlations');
+  }
+
   incidentNotes(id: number): Promise<IncidentNote[]> {
     return this.request('GET', `/api/incidents/${id}/notes`);
   }
@@ -353,6 +389,27 @@ export class BackendClient {
 
   updateService(id: number, req: UpdateServiceRequest): Promise<AdminService> {
     return this.request('PATCH', `/api/admin/services/${id}`, req);
+  }
+
+  createService(req: CreateServiceRequest): Promise<AdminService> {
+    return this.request('POST', '/api/admin/services', req);
+  }
+
+  slaPolicies(): Promise<SlaPolicy[]> {
+    return this.request('GET', '/api/admin/sla-policies');
+  }
+
+  createSlaPolicy(req: CreateSlaPolicyRequest): Promise<SlaPolicy> {
+    return this.request('POST', '/api/admin/sla-policies', req);
+  }
+
+  updateSlaPolicy(id: number, req: UpdateSlaPolicyRequest): Promise<SlaPolicy> {
+    return this.request('PATCH', `/api/admin/sla-policies/${id}`, req);
+  }
+
+  /** Only service-specific overrides can be deleted (204). */
+  deleteSlaPolicy(id: number): Promise<void> {
+    return this.request('DELETE', `/api/admin/sla-policies/${id}`);
   }
 
   /** The suggestion, or undefined when nothing matches (204). */

@@ -1,0 +1,16 @@
+---
+// Consistent page heading: title, optional one-line subtitle and an actions slot on the right.
+interface Props {
+  title: string;
+  subtitle?: string;
+}
+const { title, subtitle } = Astro.props;
+---
+
+<header class="page-header">
+  <div>
+    <h1>{title}</h1>
+    {subtitle && <p class="muted page-subtitle">{subtitle}</p>}
+  </div>
+  <div class="button-row"><slot /></div>
+</header>

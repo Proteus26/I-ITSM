@@ -2,7 +2,7 @@ package com.itsm.incident
 
 /** Buttons the UI may show for an incident; the names are part of the REST contract. */
 enum class IncidentAction {
-    ACKNOWLEDGE, START, REQUEST_INFO, RESUME, RESOLVE, VERIFY, REOPEN, CLOSE, CANCEL, FEEDBACK, ASSIGN, CLASSIFY,
+    ACKNOWLEDGE, START, REQUEST_INFO, RESUME, RESOLVE, VERIFY, REOPEN, CLOSE, CANCEL, FEEDBACK, ASSIGN, CLASSIFY, EDIT,
 }
 
 /** Statuses from which an administrator can (re)assign; mirrors [Incident.assign]. */
@@ -36,6 +36,7 @@ fun Incident.actionsFor(actor: Actor): List<IncidentAction> {
         if (can(IncidentStatus.CLOSED)) add(IncidentAction.CLOSE)
         if (can(IncidentStatus.CANCELLED)) add(IncidentAction.CANCEL)
         if (canGiveFeedback(actor)) add(IncidentAction.FEEDBACK)
+        if (editableFieldsFor(actor).isNotEmpty()) add(IncidentAction.EDIT)
         if (actor.isAdmin && status == IncidentStatus.NEW) add(IncidentAction.CLASSIFY)
         if (actor.isAdmin && status in ASSIGNABLE) add(IncidentAction.ASSIGN)
     }

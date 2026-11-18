@@ -46,6 +46,9 @@ class RecipientResolver(private val users: UserRepository) {
             is IncidentEscalated -> { assignee(); event.escalatedToId?.let { ids += it }; admins() }
             is IncidentResolved -> reporter()
             is IncidentClosed -> { reporter(); assignee() }
+            // The one who is not the editor hears about it (the editor is removed below): the assignee when the
+            // reporter edits, the reporter when staff edit. An administrator editing tells both.
+            is IncidentUpdated -> { reporter(); assignee() }
         }
 
         event.actorId?.let { ids.remove(it) }

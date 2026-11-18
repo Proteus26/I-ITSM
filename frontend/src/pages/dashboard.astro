@@ -1,65 +1,347 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import RoleBadge from '../components/RoleBadge.astro';
-import { levelLabel } from '../lib/forms';
+import Alert from '../components/Alert.astro';
+import EmptyState from '../components/EmptyState.astro';
+import IncidentTable from '../components/IncidentTable.astro';
+import IncidentStatusBadge from '../components/IncidentStatusBadge.astro';
+import PageHeader from '../components/PageHeader.astro';
+import PriorityBadge from '../components/PriorityBadge.astro';
+import StatTile from '../components/StatTile.astro';
+import { backendFor } from '../lib/backend';
+import {
+  awaitingResponse,
+  awaitingVerification,
+  expiredSession,
+  failureText,
+    formatPercent,
+  loadPercent,
+  openIncidents,
+  relativeDue,
+  settle,
+  slaTone,
+  sortByDue,
+} from '../lib/dashboard';
+import { formatDateTime, levelLabel, pluralize } from '../lib/forms';
+import { handleLoadError } from '../lib/loadError';
+import { incidentHref } from '../lib/incidents';
 import { loginUrl } from '../lib/redirect';
 
 // The middleware guarantees a user on /dashboard (see ROUTE_RULES in src/lib/access.ts); this keeps the types honest.
 const user = Astro.locals.user;
 if (!user) return Astro.redirect(loginUrl(Astro.url.pathname + Astro.url.search));
+
+const api = backendFor(Astro.cookies);
+const now = new Date();
+const isEmployee = user.role === 'EMPLOYEE';
+const isTech = user.role === 'TECHNICIAN';
+const isAdmin = user.role === 'ADMIN';
 const tech = user.technician;
+
+// Every block loads on its own: a failing call turns into a small notice in that block and the rest still renders.
+const [mine, assigned, overview, sla, workload, fresh, classified] = await Promise.all([
+  settle(() => api.myIncidents({ size: 100 })),
+  isTech ? settle(() => api.assignedIncidents({ size: 100 })) : Promise.resolve(null),
+  isAdmin ? settle(() => api.reportOverview()) : Promise.resolve(null),
+  isAdmin ? settle(() => api.reportSlaCompliance()) : Promise.resolve(null),
+  isAdmin ? settle(() => api.reportWorkload()) : Promise.resolve(null),
+  isAdmin ? settle(() => api.searchIncidents({ status: 'NEW', sort: 'createdAt,asc', size: 8 })) : Promise.resolve(null),
+  isAdmin ? settle(() => api.searchIncidents({ status: 'CLASSIFIED', sort: 'createdAt,asc', size: 8 })) : Promise.resolve(null),
+]);
+
+const expired = expiredSession([mine, assigned, overview, sla, workload, fresh, classified].filter((r) => r !== null));
+if (expired) {
+  const r = await handleLoadError(expired, Astro);
+  if (r instanceof Response) return r;
+}
+
+const myList = mine.ok ? mine.value.content : [];
+const myOpen = openIncidents(myList);
+const needMyAnswer = awaitingResponse(myList);
+const needMyVerification = awaitingVerification(myList);
+const myLatest = myList.slice(0, 5);
+
+const queue = assigned?.ok ? sortByDue(assigned.value.content) : [];
+const queueTone = queue.map((i) => slaTone(i, now));
+const overdueCount = queueTone.filter((t) => t === 'overdue').length;
+const atRiskCount = queueTone.filter((t) => t === 'at-risk').length;
+const activeCount = assigned?.ok ? assigned.value.totalElements : 0;
+const maxActive = tech?.maxActiveIncidents ?? 0;
+
+const needsAction = [...(fresh?.ok ? fresh.value.content : []), ...(classified?.ok ? classified.value.content : [])];
+const needsActionTotal = (fresh?.ok ? fresh.value.totalElements : 0) + (classified?.ok ? classified.value.totalElements : 0);
+const needsActionFailed = (fresh && !fresh.ok) || (classified && !classified.ok);
+const workloadRows = workload?.ok ? [...workload.value].sort((a, b) => b.activeIncidents - a.activeIncidents) : [];
+const busiest = Math.max(1, ...workloadRows.map((w) => w.activeIncidents));
 ---
 
 <Layout title="Dashboard · I-ITSM">
-  <h1>Hello, {user.fullName}</h1>
-  <p>You are logged in as <RoleBadge role={user.role} />.</p>
+  <PageHeader title={`Hello, ${user.fullName}`} subtitle={isAdmin ? 'Service desk overview' : isTech ? 'Your queue and workload' : 'Your incidents at a glance'}>
+    <a class="btn" href="/incidents/new">Report an incident</a>
+  </PageHeader>
 
-  <div class="action-grid">
-    <section class="card">
-      <h2>Report an incident</h2>
-      <p class="muted">Something is not working? Tell us about it.</p>
-      <p><a class="btn" href="/incidents/new">Report an incident</a></p>
-    </section>
-    <section class="card">
-      <h2>My incidents</h2>
-      <p class="muted">Follow the incidents you reported.</p>
-      <p><a href="/incidents?tab=mine">View my incidents</a></p>
-    </section>
-    {
-      user.role === 'TECHNICIAN' && (
+  {/* ------------------------------------------------------------------ employee */}
+  {
+    isEmployee && (
+      <>
+        {!mine.ok && <Alert kind="warning">Your incidents could not be loaded: {failureText(mine.error)}</Alert>}
+        {mine.ok && (
+          <div class="stat-grid">
+            <StatTile label="Open incidents" value={myOpen.length} hint="Not resolved yet" href="/incidents" />
+            <StatTile label="Waiting for your answer" value={needMyAnswer.length} tone={needMyAnswer.length ? 'warn' : 'default'} hint="A technician asked a question" />
+            <StatTile label="To confirm" value={needMyVerification.length} tone={needMyVerification.length ? 'success' : 'default'} hint="Resolved: is it fixed?" />
+          </div>
+        )}
+
+        {needMyAnswer.length > 0 && (
+          <section class="card callout callout-warn" aria-labelledby="h-answer">
+            <h2 id="h-answer">Waiting for your response</h2>
+            <p class="muted">A technician needs more information before they can continue.</p>
+            <ul class="plain-list">
+              {needMyAnswer.map((i) => (
+                <li class="list-row">
+                  <span><a href={incidentHref(i.id)}>{i.number}</a> {i.title}</span>
+                  <a class="btn btn-small" href={incidentHref(i.id)}>Answer</a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {needMyVerification.length > 0 && (
+          <section class="card callout callout-success" aria-labelledby="h-verify">
+            <h2 id="h-verify">Resolved: please confirm the fix</h2>
+            <p class="muted">Tell us whether it works now and rate the service.</p>
+            <ul class="plain-list">
+              {needMyVerification.map((i) => (
+                <li class="list-row">
+                  <span><a href={incidentHref(i.id)}>{i.number}</a> {i.title}</span>
+                  <a class="btn btn-small btn-secondary" href={incidentHref(i.id)}>Review</a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {mine.ok && (
+          <section aria-labelledby="h-latest">
+            <div class="row-between">
+              <h2 id="h-latest">Latest incidents</h2>
+              <a href="/incidents">All my incidents ({mine.value.totalElements})</a>
+            </div>
+            {myLatest.length === 0 ? (
+              <EmptyState message="No incidents yet. Something not working? Report it and we will route it to the right technician." actionHref="/incidents/new" actionLabel="Report an incident" />
+            ) : (
+              <IncidentTable incidents={myLatest} caption="Latest incidents" />
+            )}
+          </section>
+        )}
+      </>
+    )
+  }
+
+  {/* ------------------------------------------------------------------ technician */}
+  {
+    isTech && (
+      <>
+        {!assigned?.ok && assigned && <Alert kind="warning">Your queue could not be loaded: {failureText(assigned.error)}</Alert>}
+        {assigned?.ok && (
+          <div class="stat-grid">
+            <div class="stat">
+              <span class="stat-label">Workload</span>
+              <span class="stat-value">{activeCount} / {maxActive || '?'}</span>
+              <div class="meter" role="img" aria-label={`${activeCount} of ${maxActive} active incidents`}>
+                <span class:list={['meter-fill', { 'meter-full': maxActive > 0 && activeCount >= maxActive }]} style={`width:${loadPercent(activeCount, maxActive)}%`}></span>
+              </div>
+              <span class="stat-hint muted">{tech?.available === false ? 'Marked unavailable' : 'Active incidents'}</span>
+            </div>
+            <StatTile label="Overdue" value={overdueCount} tone={overdueCount ? 'danger' : 'default'} hint="Past the resolution deadline" />
+            <StatTile label="At risk" value={atRiskCount} tone={atRiskCount ? 'warn' : 'default'} hint="75% of the SLA window used" />
+          </div>
+        )}
+
+        {assigned?.ok && (
+          <section aria-labelledby="h-queue">
+            <div class="row-between">
+              <h2 id="h-queue">My queue, most urgent deadline first</h2>
+              <a href="/incidents?tab=assigned">Open full list</a>
+            </div>
+            {queue.length === 0 ? (
+              <EmptyState message="Nothing assigned to you right now. New incidents that match your skills will show up here." />
+            ) : (
+              <div class="table-wrap" role="region" aria-label="My queue" tabindex="0">
+                <table class="stack">
+                  <caption class="sr-only">Incidents assigned to me, by deadline</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Number</th>
+                      <th scope="col">Title</th>
+                      <th scope="col">Priority</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Resolution deadline</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {queue.map((i, n) => (
+                      <tr class:list={[{ 'row-overdue': queueTone[n] === 'overdue', 'row-at-risk': queueTone[n] === 'at-risk' }]}>
+                        <td data-label="Number"><a href={incidentHref(i.id)}>{i.number}</a></td>
+                        <td data-label="Title">{i.title}</td>
+                        <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>
+                        <td data-label="Status"><IncidentStatusBadge status={i.status} /></td>
+                        <td data-label="Deadline">
+                          {i.resolutionDueAt ? <time datetime={i.resolutionDueAt} title={formatDateTime(i.resolutionDueAt)}>{relativeDue(i.resolutionDueAt, now)}</time> : '—'}
+                          {queueTone[n] === 'overdue' && <span class="badge badge-danger overdue">Overdue</span>}
+                          {queueTone[n] === 'at-risk' && <span class="badge badge-warn overdue">At risk</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
         <section class="card">
-          <h2>Assigned to me</h2>
-          <p class="muted">The incidents you are working on.</p>
-          <p><a href="/incidents?tab=assigned">View assigned incidents</a></p>
-        </section>
-      )
-    }
-    {
-      user.role === 'ADMIN' && (
-        <section class="card">
-          <h2>Administration</h2>
-          <ul class="plain-list">
-            <li><a href="/admin/reports">Reports</a></li>
-            <li><a href="/search">Search incidents</a></li>
-            <li><a href="/admin/users">Manage users</a></li>
-            <li><a href="/admin/categories">Categories</a></li>
-            <li><a href="/admin/settings">Settings</a></li>
+          <h2>Quick links</h2>
+          <ul class="link-list">
+            <li><a href="/incidents?tab=assigned">Assigned to me</a></li>
+            <li><a href="/incidents?tab=mine">Incidents I reported</a></li>
+            <li><a href="/notifications">Notifications</a></li>
+            <li><a href="/account">My account</a></li>
           </ul>
         </section>
-      )
-    }
-  </div>
+
+        {tech && (
+          <section class="card">
+            <h2>Technician profile</h2>
+            <dl class="details">
+              <dt>Level</dt><dd>{levelLabel(tech.level)}</dd>
+              <dt>Max active incidents</dt><dd>{tech.maxActiveIncidents}</dd>
+              <dt>Available</dt><dd>{tech.available ? 'Yes' : 'No'}</dd>
+              <dt>Skills</dt><dd>{tech.skills.length ? tech.skills.join(', ') : 'None'}</dd>
+            </dl>
+          </section>
+        )}
+      </>
+    )
+  }
+
+  {/* ------------------------------------------------------------------ administrator */}
   {
-    tech && (
-      <section class="card">
-        <h2>Technician profile</h2>
-        <dl class="details">
-          <dt>Level</dt><dd>{levelLabel(tech.level)}</dd>
-          <dt>Max active incidents</dt><dd>{tech.maxActiveIncidents}</dd>
-          <dt>Available</dt><dd>{tech.available ? 'Yes' : 'No'}</dd>
-          <dt>Skills</dt><dd>{tech.skills.length ? tech.skills.join(', ') : 'None'}</dd>
-        </dl>
-      </section>
+    isAdmin && (
+      <>
+        {overview && !overview.ok && <Alert kind="warning">The overview numbers could not be loaded: {failureText(overview.error)}</Alert>}
+        {overview?.ok && (
+          <div class="stat-grid stat-grid-5">
+            <StatTile label="Total" value={overview.value.total} href="/search" />
+            <StatTile label="Open" value={overview.value.open} />
+            <StatTile label="Critical (open P1)" value={overview.value.critical} tone={overview.value.critical ? 'danger' : 'default'} />
+            <StatTile label="Resolved" value={overview.value.resolved} tone="success" />
+            <StatTile label="SLA violations" value={overview.value.slaViolations} tone={overview.value.slaViolations ? 'danger' : 'default'} href="/admin/reports" />
+          </div>
+        )}
+
+        <div class="action-grid">
+          <section class="card" aria-labelledby="h-sla">
+            <h2 id="h-sla">SLA compliance</h2>
+            {sla && !sla.ok && <Alert kind="warning">Not available: {failureText(sla.error)}</Alert>}
+            {sla?.ok && (
+              <>
+                <p class="big-number">{formatPercent(sla.value.percentage)}</p>
+                <div class="meter" role="img" aria-label={`SLA compliance ${formatPercent(sla.value.percentage)}`}>
+                  <span class:list={['meter-fill', { 'meter-full': sla.value.percentage < 90 }]} style={`width:${Math.max(0, Math.min(100, sla.value.percentage))}%`}></span>
+                </div>
+                <p class="muted">{sla.value.withinSla} of {sla.value.total} incidents within SLA, {sla.value.breached} breached.</p>
+              </>
+            )}
+          </section>
+
+          <section class="card" aria-labelledby="h-links">
+            <h2 id="h-links">Go to</h2>
+            <ul class="link-list">
+              <li><a href="/admin/reports">Reports and charts</a></li>
+              <li><a href="/search">Search incidents</a></li>
+              <li><a href="/admin/audit">Audit log</a></li>
+              <li><a href="/admin/users">Manage users</a></li>
+              <li><a href="/admin/settings">Settings</a></li>
+              <li><a href="/admin/categories">Categories</a></li>
+            </ul>
+          </section>
+        </div>
+
+        <section aria-labelledby="h-action">
+          <div class="row-between">
+            <h2 id="h-action">Needs action: unassigned incidents{needsActionTotal > 0 && ` (${needsActionTotal})`}</h2>
+            <a href="/search?status=NEW">Search new incidents</a>
+          </div>
+          {needsActionFailed && <Alert kind="warning">The list of unassigned incidents could not be loaded completely.</Alert>}
+          {!needsActionFailed && needsAction.length === 0 ? (
+            <EmptyState message="Every incident has an owner. Nothing needs triage right now." />
+          ) : (
+            needsAction.length > 0 && (
+              <div class="table-wrap" role="region" aria-label="Unassigned incidents" tabindex="0">
+                <table class="stack">
+                  <caption class="sr-only">Incidents waiting for classification or assignment</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Number</th>
+                      <th scope="col">Title</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Priority</th>
+                      <th scope="col">Reporter</th>
+                      <th scope="col">Reported</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {needsAction.map((i) => (
+                      <tr>
+                        <td data-label="Number"><a href={incidentHref(i.id)}>{i.number}</a></td>
+                        <td data-label="Title">{i.title}</td>
+                        <td data-label="Status"><IncidentStatusBadge status={i.status} /></td>
+                        <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>
+                        <td data-label="Reporter">{i.reporterName ?? '—'}</td>
+                        <td data-label="Reported"><time datetime={i.createdAt}>{formatDateTime(i.createdAt)}</time></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </section>
+
+        <section aria-labelledby="h-load">
+          <div class="row-between">
+            <h2 id="h-load">Technician workload</h2>
+            <a href="/admin/reports">Full report</a>
+          </div>
+          {workload && !workload.ok && <Alert kind="warning">The workload could not be loaded: {failureText(workload.error)}</Alert>}
+          {workload?.ok && workloadRows.length === 0 && <EmptyState message="There are no technicians yet." actionHref="/admin/users/new" actionLabel="Add a technician" />}
+          {workloadRows.length > 0 && (
+            <div class="table-wrap" role="region" aria-label="Technician workload" tabindex="0">
+              <table class="stack">
+                <caption class="sr-only">Active incidents per technician</caption>
+                <thead>
+                  <tr><th scope="col">Technician</th><th scope="col">Active incidents</th><th scope="col">Load</th></tr>
+                </thead>
+                <tbody>
+                  {workloadRows.map((w) => (
+                    <tr>
+                      <td data-label="Technician">{w.technicianName}</td>
+                      <td data-label="Active">{pluralize(w.activeIncidents, 'incident')}</td>
+                      <td data-label="Load">
+                        <div class="meter meter-inline" role="img" aria-label={`${w.activeIncidents} active`}>
+                          <span class="meter-fill" style={`width:${loadPercent(w.activeIncidents, busiest)}%`}></span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </>
     )
   }
 </Layout>

@@ -1,0 +1,17 @@
+---
+// One headline number. `tone` colours the value when it needs attention (danger) or is good news (success).
+interface Props {
+  label: string;
+  value: string | number;
+  hint?: string;
+  tone?: 'default' | 'danger' | 'warn' | 'success';
+  href?: string;
+}
+const { label, value, hint, tone = 'default', href } = Astro.props;
+---
+
+<div class={`stat stat-${tone}`}>
+  <span class="stat-label">{label}</span>
+  <span class="stat-value">{href ? <a href={href}>{value}</a> : value}</span>
+  {hint && <span class="stat-hint muted">{hint}</span>}
+</div>

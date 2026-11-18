@@ -43,6 +43,22 @@ data class FeedbackRequest(
 
 data class ClassifyRequest(@field:NotBlank @field:Size(max = 100) val categoryCode: String)
 
+/**
+ * PATCH /api/incidents/{id}: every field is optional and only the given ones change. [clearService] removes the
+ * service (a null [serviceId] means "unchanged").
+ */
+data class UpdateIncidentRequest(
+    @field:Size(max = Incident.MAX_TITLE) val title: String? = null,
+    @field:Size(max = Incident.MAX_TEXT) val description: String? = null,
+    val impact: Impact? = null,
+    val urgency: Urgency? = null,
+    @field:Min(1) val affectedUsers: Int? = null,
+    val serviceId: Long? = null,
+    val clearService: Boolean = false,
+) {
+    fun toEdit() = IncidentEdit(title, description, impact, urgency, affectedUsers, serviceId, clearService)
+}
+
 data class AssignRequest(@field:NotNull val technicianId: Long)
 
 data class PersonRef(val id: Long, val fullName: String)
@@ -94,6 +110,8 @@ data class IncidentDetail(
     val version: Long,
     val actions: List<IncidentAction>,
     val noteTypes: List<NoteType>,
+    /** The request fields the caller may change with PATCH (names as in [UpdateIncidentRequest]); empty when EDIT is not in `actions`. */
+    val editableFields: List<String> = emptyList(),
 )
 
 data class IncidentNoteResponse(val id: Long, val type: NoteType, val body: String, val author: PersonRef, val createdAt: Instant)

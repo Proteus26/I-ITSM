@@ -3,6 +3,60 @@
 CS F213 / MAC F212 OOP course project (Semester I, 2026–27). The brief is in
 [`OOP_S1_2026-2027_Project.md`](OOP_S1_2026-2027_Project.md).
 
+## Quick start
+
+```sh
+DEMO_DATA=true docker compose up --build
+```
+
+Only Docker is needed. The first build takes a few minutes; compose starts PostgreSQL, waits for it to be healthy,
+starts the backend, waits for `/actuator/health`, then starts the frontend. Without `DEMO_DATA=true` you get an empty
+system with just the administrator.
+
+| URL                                   | What                  |
+| ------------------------------------- | --------------------- |
+| http://localhost:4321                 | The application       |
+| http://localhost:8080/swagger-ui.html | API docs (Swagger UI) |
+
+Port taken? Override `FRONTEND_PORT`, `BACKEND_PORT` or `DB_PORT` (for example `FRONTEND_PORT=4400 docker compose up`).
+Stop with `docker compose down`; add `-v` to also delete the database and start clean.
+
+### Demo accounts
+
+Every demo password is `ChangeMe123!`. The demo data is created only with `DEMO_DATA=true` and never under the `prod` profile.
+
+| Role          | Email                                            | Notes                                                              |
+| ------------- | ------------------------------------------------ | ------------------------------------------------------------------ |
+| Administrator | `admin@itsm.local`                               | Created on first start (`ADMIN_EMAIL` / `ADMIN_PASSWORD`)          |
+| Employee      | `employee@itsm.local` (Erin, Finance)            | Has a question waiting and a fix to confirm                        |
+| Employee      | `employee2@itsm.local` (Marco, Marketing)        |                                                                    |
+| Employee      | `employee3@itsm.local` (Priya, Human Resources)  |                                                                    |
+| Technician    | `tech1@itsm.local` (Tariq, L2)                   | NETWORK, AUTHENTICATION, SECURITY                                  |
+| Technician    | `tech2@itsm.local` (Sofia, L1)                   | SOFTWARE, APPLICATION, DATABASE                                    |
+| Technician    | `tech3@itsm.local` (Hugo, Team lead)             | HARDWARE, CLOUD, STORAGE; has a breached incident                  |
+| Technician    | `tech4@itsm.local` (Dana, L2)                    | DATABASE, APPLICATION, CLOUD, SECURITY                             |
+| Technician    | `tech5@itsm.local` (Leo, L1)                     | HARDWARE, SOFTWARE, AUTHENTICATION, NETWORK, STORAGE               |
+
+The demo data holds about 25 incidents over the services (Payment, VPN, Email, ...), all priorities and every state
+(new, assigned, in progress, pending info, resolved, closed with feedback), two SLA breaches, a few at-risk incidents,
+two weeks of history for the reports, and four similar Payment incidents reported within the last hour.
+
+### Two-minute demo script (the brief's scenario)
+
+1. Log in as `employee@itsm.local`. The dashboard shows what needs you: an answer owed, a fix to confirm, your latest incidents.
+2. **Report an incident**: title "Payment app is down", describe it, impact "My department", urgency "Critical", service Payment.
+   While typing, similar incidents and a suggested category appear (steps 3 and 4: classify, affected service and impact).
+3. Submit. The incident page shows the priority with its explanation (step 5), the SLA deadlines (6), the assigned technician
+   (7 and 8) and the timeline of recorded events (12).
+4. Log out, log in as `admin@itsm.local`. The dashboard shows totals, SLA compliance, unassigned incidents and the technician
+   workload. Open the new incident: recommended technicians and manual reassignment are there. Open the **Audit log** (12).
+5. Log in as the assigned technician (the incident page names them; Sofia or Dana for Payment). The queue is sorted by deadline
+   with overdue and at-risk rows highlighted. Open the incident, **Acknowledge**, **Start work**, then **Resolve** (10).
+   The bell icon shows the notifications each person received (9).
+6. Back as the employee: **Confirm the fix**, leave feedback; an administrator or the employee **Closes** it (13).
+7. As admin open **Reports** (14): overview, incidents per day and service, workload, mean time to resolve, SLA compliance (11).
+   The SLA monitor runs every minute; the demo breaches are already recorded and escalated.
+
 ## Stack
 
 | Layer     | Technology                                                       |
@@ -61,7 +115,7 @@ and auth cookies just work.
 
 ## Option 1: Run everything with Docker
 
-Only Docker is needed.
+See the Quick start above; this is the same without demo data.
 
 ```sh
 cp .env.example .env        # optional; the defaults work
@@ -158,6 +212,15 @@ strategies (`weighted`, `matrix`; chosen with the admin setting `priority.strate
 P2 15 min / 2 h, P3 1 h / 8 h, P4 4 h / 24 h; a service can override them) and an `SlaMonitor` that records a warning at 75 %
 of the time and a breach when a deadline passes, publishing `SlaWarningRaised`, `SlaBreached` and `IncidentEscalated`.
 See [docs/p3.md](docs/p3.md) for the contracts and what is still open.
+
+**Escalation chain** (Technician, Team Lead, Administrator): when an unacknowledged incident misses its response deadline, the
+incident is reassigned by the system to the best available team lead (a technician of level `TEAM_LEAD`, preferably with the incident's
+category skill, least loaded, never the reporter or the current assignee) and `IncidentEscalated(level=TEAM_LEAD)`,
+`IncidentAssigned(strategy=escalation)` are published. Without a team lead, or on a P1/P2 resolution breach, the administrators are
+notified (`IncidentEscalated(level=ADMIN)`).
+
+**SLA policies** are managed with `GET`/`POST /api/admin/sla-policies`, `PATCH`/`DELETE /api/admin/sla-policies/{id}` (admin;
+defaults can be edited but not deleted; a duplicate service/priority is 409). A change only affects deadlines calculated afterwards.
 
 ## Configuration
 
@@ -371,6 +434,10 @@ class IncidentService(private val currentUser: CurrentUser) {
   are never shown to users (`ApiError.userMessage`).
 - **Admin user management** (admins only): `/admin/users` (search, filter by role and status, paging), `/admin/users/new`, and
   `/admin/users/<id>` (edit details, activate or deactivate, reset password).
+- **Admin configuration** (admins only, under the "Admin" menu): `/admin/services` (create, edit, activate or deactivate IT services:
+  name, description, criticality, owner team), `/admin/sla` (edit the default response and resolution times per priority, add or delete
+  per-service overrides), `/admin/settings` (priority and assignment strategy), `/admin/categories`. On a technician's user page the
+  level (including Team lead), skills (checkboxes of the active categories), availability and maximum active incidents can be set.
 - **`?notice=` parameters**: after a successful action the pages redirect with a fixed code that is mapped to a message and never echoed:
   `/admin/users/<id>?notice=created|updated|reset`, `/account?changed=1`, and `/login?registered=1` (shown when automatic login after
   registering fails).

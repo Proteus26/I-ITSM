@@ -5,7 +5,9 @@ import { BackendClient } from '../lib/backend';
 import { formatDateTime } from '../lib/forms';
 import type { Ping } from '../lib/types';
 
-const { user } = Astro.locals;
+// Signed-in users have nothing to read here: send them to their dashboard.
+if (Astro.locals.user) return Astro.redirect('/dashboard');
+
 let ping: Ping | null = null;
 let error: string | null = null;
 try {
@@ -13,35 +15,70 @@ try {
 } catch (e) {
   error = e instanceof ApiError ? e.userMessage : 'Unexpected error.';
 }
+
+const roles = [
+  {
+    name: 'Employees',
+    lead: 'Report a problem and follow it to the end.',
+    items: ['Describe the issue in plain words; the system suggests a category and spots duplicates', 'Track status and deadlines, answer questions from the technician', 'Confirm the fix and rate the service'],
+  },
+  {
+    name: 'Technicians',
+    lead: 'Work the queue that matches your skills.',
+    items: ['Incidents are assigned by skill and current workload', 'See what is due first and what is about to breach its SLA', 'Acknowledge, investigate, ask for information and resolve'],
+  },
+  {
+    name: 'Administrators',
+    lead: 'Keep the service desk healthy.',
+    items: ['Triage unassigned incidents, reassign and escalate', 'Watch SLA compliance, workload and trends in the reports', 'Manage users, categories and settings; every change is audited'],
+  },
+];
+const steps = ['Report', 'Classify and prioritise', 'Assign', 'Resolve', 'Verify and rate'];
 ---
 
-<Layout title="I-ITSM">
-  <h1>I-ITSM</h1>
-  <p>Intelligent IT Service Management.</p>
-  <div class="row">
+<Layout title="I-ITSM · Intelligent IT Service Management">
+  <section class="hero">
+    <p class="eyebrow">Intelligent IT Service Management</p>
+    <h1>Get IT problems fixed, and know when they will be.</h1>
+    <p class="hero-lead">
+      I-ITSM takes an incident from the first report to a confirmed fix: it classifies and prioritises the problem, applies the SLA, picks the best available technician and keeps everyone informed.
+    </p>
+    <div class="button-row">
+      <a class="btn" href="/login">Log in</a>
+      <a class="btn btn-secondary" href="/register">Register</a>
+    </div>
+  </section>
+
+  <ol class="steps" aria-label="How an incident flows">
+    {steps.map((s) => <li>{s}</li>)}
+  </ol>
+
+  <h2 class="section-title">What each role can do</h2>
+  <div class="action-grid">
     {
-      user ? (
-        <a class="btn" href="/dashboard">Go to dashboard</a>
-      ) : (
-        <>
-          <a class="btn" href="/login">Log in</a>
-          <a class="btn btn-secondary" href="/register">Register</a>
-        </>
-      )
+      roles.map((r) => (
+        <section class="card">
+          <h3>{r.name}</h3>
+          <p class="muted">{r.lead}</p>
+          <ul class="bullets">
+            {r.items.map((t) => <li>{t}</li>)}
+          </ul>
+        </section>
+      ))
     }
   </div>
 
-  <h2>Backend status</h2>
-  {
-    ping ? (
-      <p>
-        {ping.service} is <span class={`badge ${['UP', 'OK'].includes(ping.status.toUpperCase()) ? 'badge-active' : 'badge-inactive'}`}>{ping.status}</span>
-        <span class="muted"> as of {formatDateTime(ping.time)}</span>
-      </p>
-    ) : (
-      <p>
-        <span class="badge badge-inactive">Unreachable</span> <span class="muted">{error}</span>
-      </p>
-    )
-  }
+  <p class="status-line muted">
+    {
+      ping ? (
+        <>
+          <span class={`badge ${['UP', 'OK'].includes(ping.status.toUpperCase()) ? 'badge-active' : 'badge-inactive'}`}>{ping.status}</span> Backend status as of {formatDateTime(ping.time)}
+        </>
+      ) : (
+        <>
+          <span class="badge badge-inactive">Unreachable</span> {error}
+        </>
+      )
+    }
+  </p>
 </Layout>
