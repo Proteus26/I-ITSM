@@ -1,0 +1,91 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import FormField from '../../components/FormField.astro';
+import TextAreaField from '../../components/TextAreaField.astro';
+import Alert from '../../components/Alert.astro';
+import { backendFor } from '../../lib/backend';
+import { formErrorState } from '../../lib/forms';
+import { handleLoadError } from '../../lib/loadError';
+import {
+  EMPTY_REPORT_FORM,
+  IMPACT_HINT,
+  IMPACT_OPTIONS,
+  MAX_TEXT,
+  MAX_TITLE,
+  URGENCY_HINT,
+  URGENCY_OPTIONS,
+  parseReportForm,
+  readReportForm,
+} from '../../lib/incidents';
+import type { CategorySummary, ServiceSummary } from '../../lib/incidentTypes';
+
+const api = backendFor(Astro.cookies);
+
+// The category and service lists only fill the drop-downs: if they fail the form still works without them.
+let services: ServiceSummary[] = [];
+let categories: CategorySummary[] = [];
+let error: string | null = null;
+let listsFailed = false;
+try {
+  [services, categories] = await Promise.all([api.listServices(), api.listCategories()]);
+} catch (e) {
+  const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+  if (r instanceof Response) return r;
+  listsFailed = true;
+}
+
+let values = { ...EMPTY_REPORT_FORM };
+let fieldErrors: Record<string, string> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  values = readReportForm(form);
+  const parsed = parseReportForm(values);
+  if (!parsed.ok) {
+    fieldErrors = parsed.errors;
+    error = 'Please fix the highlighted fields.';
+    Astro.response.status = 400;
+  } else {
+    try {
+      const created = await api.createIncident(parsed.value);
+      return Astro.redirect(`/incidents/${created.id}?reported=1`);
+    } catch (e) {
+      const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+      if (r instanceof Response) return r;
+      const state = formErrorState(r);
+      fieldErrors = state.fieldErrors;
+      error = state.message;
+      Astro.response.status = r.status;
+    }
+  }
+}
+
+const serviceOptions = [{ value: '', label: 'Not sure / not listed' }, ...services.map((s) => ({ value: String(s.id), label: s.name }))];
+const categoryOptions = [{ value: '', label: 'Let the system decide' }, ...categories.map((c) => ({ value: c.code, label: c.name }))];
+---
+
+<Layout title="Report an incident · I-ITSM">
+  <h1>Report an incident</h1>
+  {error && <Alert kind="error">{error}</Alert>}
+  {listsFailed && <Alert kind="warning">The lists of services and categories could not be loaded. You can still report the incident.</Alert>}
+
+  <section class="card card-md">
+    <form method="post" action="/incidents/new" id="report-form">
+      <p class="hint required-hint">* required</p>
+      <FormField name="title" label="Title" value={values.title} error={fieldErrors.title} required maxlength={MAX_TITLE} hint="A short summary, for example “VPN does not connect”." />
+      <TextAreaField name="description" label="Description" value={values.description} error={fieldErrors.description} required maxlength={MAX_TEXT} rows={6} hint="What happened, what you expected, and any error message." />
+      <FormField name="impact" label="Impact" value={values.impact} error={fieldErrors.impact} options={IMPACT_OPTIONS} hint={IMPACT_HINT} required />
+      <FormField name="urgency" label="Urgency" value={values.urgency} error={fieldErrors.urgency} options={URGENCY_OPTIONS} hint={URGENCY_HINT} required />
+      <FormField name="affectedUsers" label="Affected users" type="number" min={1} value={values.affectedUsers} error={fieldErrors.affectedUsers} hint="About how many people have this problem (at least 1)." />
+      <FormField name="serviceId" label="Service" value={values.serviceId} error={fieldErrors.serviceId} options={serviceOptions} hint="The IT service that is affected, if you know it." />
+
+      <div id="suggest-category" class="suggestions" hidden></div>
+      <FormField name="categoryCode" label="Category" value={values.categoryCode} error={fieldErrors.categoryCode} options={categoryOptions} hint="Leave it on “Let the system decide” if you are unsure." />
+      <div id="suggest-similar" class="suggestions" hidden></div>
+
+      <button class="btn" type="submit">Report incident</button>
+    </form>
+  </section>
+
+  <script is:inline src="/scripts/incident-suggest.js" defer></script>
+</Layout>

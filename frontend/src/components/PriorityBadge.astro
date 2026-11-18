@@ -1,0 +1,10 @@
+---
+import { priorityBadgeClass } from '../lib/incidents';
+
+interface Props {
+  priority: string | null | undefined;
+}
+const { priority } = Astro.props;
+---
+
+<span class={priorityBadgeClass(priority)}>{priority ?? 'Not set'}</span>

@@ -47,6 +47,8 @@ app:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4321}
 
 itsm:
+  # Development only: create a demo employee, technicians and incidents at startup (see README).
+  demo-data: ${DEMO_DATA:false}
   mail:
     # logging (default) only writes emails to the log; smtp sends them through spring.mail.*
     gateway: ${ITSM_MAIL_GATEWAY:logging}

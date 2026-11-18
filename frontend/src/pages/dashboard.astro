@@ -14,30 +14,41 @@ const tech = user.technician;
   <h1>Hello, {user.fullName}</h1>
   <p>You are logged in as <RoleBadge role={user.role} />.</p>
 
-  {
-    user.role === 'EMPLOYEE' && (
-      <section class="card">
-        <h2>My incidents</h2>
-        <p class="muted">You have no incidents yet. Incident reporting is coming soon.</p>
-      </section>
-    )
-  }
-  {
-    user.role === 'TECHNICIAN' && (
-      <section class="card">
-        <h2>Assigned incidents</h2>
-        <p class="muted">No incidents are assigned to you. Incident assignment is coming soon.</p>
-      </section>
-    )
-  }
-  {
-    user.role === 'ADMIN' && (
-      <section class="card">
-        <h2>Administration</h2>
-        <p><a href="/admin/users">Manage users</a></p>
-      </section>
-    )
-  }
+  <div class="action-grid">
+    <section class="card">
+      <h2>Report an incident</h2>
+      <p class="muted">Something is not working? Tell us about it.</p>
+      <p><a class="btn" href="/incidents/new">Report an incident</a></p>
+    </section>
+    <section class="card">
+      <h2>My incidents</h2>
+      <p class="muted">Follow the incidents you reported.</p>
+      <p><a href="/incidents?tab=mine">View my incidents</a></p>
+    </section>
+    {
+      user.role === 'TECHNICIAN' && (
+        <section class="card">
+          <h2>Assigned to me</h2>
+          <p class="muted">The incidents you are working on.</p>
+          <p><a href="/incidents?tab=assigned">View assigned incidents</a></p>
+        </section>
+      )
+    }
+    {
+      user.role === 'ADMIN' && (
+        <section class="card">
+          <h2>Administration</h2>
+          <ul class="plain-list">
+            <li><a href="/admin/reports">Reports</a></li>
+            <li><a href="/search">Search incidents</a></li>
+            <li><a href="/admin/users">Manage users</a></li>
+            <li><a href="/admin/categories">Categories</a></li>
+            <li><a href="/admin/settings">Settings</a></li>
+          </ul>
+        </section>
+      )
+    }
+  </div>
   {
     tech && (
       <section class="card">

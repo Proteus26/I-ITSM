@@ -20,7 +20,7 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { prefix: '/account' },
   { prefix: '/notifications' },
   { prefix: '/search' },
-  // { prefix: '/incidents' },
+  { prefix: '/incidents' },
   // { prefix: '/technician', roles: ['TECHNICIAN'] },
 ];
 

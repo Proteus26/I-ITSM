@@ -96,6 +96,11 @@ class Incident(
     final var priorityScore: Double? = null
         private set
 
+    /** Why the priority is what it is (from the priority strategy); null until a priority has been calculated. */
+    @Column(name = "priority_explanation", length = MAX_EXPLANATION)
+    final var priorityExplanation: String? = null
+        private set
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     final var status: IncidentStatus = IncidentStatus.NEW
@@ -220,11 +225,15 @@ class Incident(
         return change
     }
 
-    /** Stores the calculated priority; returns the previous one (null the first time) so the caller can detect a change. */
-    fun applyPriority(priority: Priority, score: Double, now: Instant): Priority? {
+    /**
+     * Stores the calculated priority with its [explanation] (cut to 500 characters); returns the previous priority
+     * (null the first time) so the caller can detect a change.
+     */
+    fun applyPriority(priority: Priority, score: Double, now: Instant, explanation: String? = null): Priority? {
         val previous = this.priority
         this.priority = priority
         this.priorityScore = score
+        this.priorityExplanation = explanation?.trim()?.ifEmpty { null }?.take(MAX_EXPLANATION)
         touch(now)
         return previous
     }
@@ -291,6 +300,10 @@ class Incident(
         touch(now)
     }
 
+    /** Whether [actor] could submit feedback right now (the same rules as [submitFeedback], without throwing). */
+    fun canGiveFeedback(actor: Actor): Boolean =
+        isActing(actor, Party.REPORTER) && status in FEEDBACK_STATUSES && feedbackRating == null
+
     private fun touch(now: Instant) {
         updatedAt = now.truncatedTo(ChronoUnit.MICROS)
     }
@@ -300,6 +313,7 @@ class Incident(
         const val MAX_TEXT = 4000
         const val MAX_ROOT_CAUSE = 2000
         const val MAX_COMMENT = 1000
+        const val MAX_EXPLANATION = 500
         private val REASSIGNABLE_STATUSES = setOf(
             IncidentStatus.ASSIGNED, IncidentStatus.ACKNOWLEDGED, IncidentStatus.IN_PROGRESS, IncidentStatus.PENDING_INFO,
         )

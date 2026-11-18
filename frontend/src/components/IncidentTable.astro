@@ -1,0 +1,52 @@
+---
+import IncidentStatusBadge from './IncidentStatusBadge.astro';
+import PriorityBadge from './PriorityBadge.astro';
+import { formatDateTime } from '../lib/forms';
+import { dueInfo, incidentHref, isFinished } from '../lib/incidents';
+import type { IncidentSummary } from '../lib/incidentTypes';
+
+interface Props {
+  incidents: IncidentSummary[];
+  caption: string;
+}
+const { incidents, caption } = Astro.props;
+const now = new Date();
+---
+
+<div class="table-wrap" role="region" aria-label={caption} tabindex="0">
+  <table class="stack">
+    <caption class="sr-only">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Number</th>
+        <th scope="col">Title</th>
+        <th scope="col">Status</th>
+        <th scope="col">Priority</th>
+        <th scope="col">Assignee</th>
+        <th scope="col">Created</th>
+        <th scope="col">Due</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        incidents.map((i) => {
+          const due = dueInfo(i.resolutionDueAt, isFinished(i.status), now);
+          return (
+            <tr>
+              <td data-label="Number"><a href={incidentHref(i.id)}>{i.number}</a></td>
+              <td data-label="Title">{i.title}</td>
+              <td data-label="Status"><IncidentStatusBadge status={i.status} /></td>
+              <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>
+              <td data-label="Assignee">{i.assignee?.fullName ?? 'Unassigned'}</td>
+              <td data-label="Created"><time datetime={i.createdAt}>{formatDateTime(i.createdAt)}</time></td>
+              <td data-label="Due">
+                {i.resolutionDueAt ? <time datetime={i.resolutionDueAt}>{due.text}</time> : '—'}
+                {due.overdue && <span class="badge badge-danger overdue">Overdue</span>}
+              </td>
+            </tr>
+          );
+        })
+      }
+    </tbody>
+  </table>
+</div>

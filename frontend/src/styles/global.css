@@ -243,6 +243,13 @@ h2 {
 .badge-employee { background: var(--success-bg); color: var(--success); }
 .badge-active { background: var(--success-bg); color: var(--success); }
 .badge-inactive { background: var(--neutral-bg); color: var(--neutral); }
+/* Incident status and priority badges (lib/incidents.ts picks the tone) */
+.badge-info { background: var(--info-bg); color: var(--info); }
+.badge-warn { background: var(--warn-bg); color: var(--text); border-color: var(--muted); }
+.badge-success { background: var(--success-bg); color: var(--success); }
+.badge-neutral { background: var(--neutral-bg); color: var(--neutral); }
+.badge-danger { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+.overdue { margin-left: 0.4rem; }
 
 .table-wrap {
   overflow-x: auto;
@@ -354,7 +361,8 @@ legend {
 }
 
 input:not([type='checkbox']),
-select {
+select,
+textarea {
   font: inherit;
   padding: 0.5rem 0.65rem;
   height: 2.5rem;
@@ -365,12 +373,24 @@ select {
 }
 
 .field input:not([type='checkbox']),
-.field select {
+.field select,
+.field textarea {
   width: 100%;
 }
 
+textarea {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+}
+
 input[aria-invalid='true'],
-select[aria-invalid='true'] {
+select[aria-invalid='true'],
+textarea[aria-invalid='true'] {
   border-color: var(--danger);
 }
 
@@ -392,6 +412,129 @@ select[aria-invalid='true'] {
 
 .required-hint {
   margin-bottom: 1rem;
+}
+
+/* Incident pages */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.25rem;
+}
+
+.tabs a {
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabs a[aria-current='page'] {
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
+.title-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+}
+
+.title-line h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prose {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.action-grid > .card {
+  margin-bottom: 0;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.button-row form {
+  margin: 0;
+}
+
+.note {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.note:last-child {
+  border-bottom: 0;
+}
+
+.note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.note p {
+  margin: 0.25rem 0 0;
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plain-list li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.plain-list li:last-child {
+  border-bottom: 0;
+}
+
+.suggestions {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--info-bg);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.suggestions p {
+  margin: 0 0 0.5rem;
+}
+
+.suggestions ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+}
+
+.inline-form .field {
+  margin: 0;
 }
 
 @media (max-width: 40rem) {

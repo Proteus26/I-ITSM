@@ -1,0 +1,88 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import IncidentTable from '../../components/IncidentTable.astro';
+import { backendFor } from '../../lib/backend';
+import { PAGE_BOUNDS, parseOptionalInt, pluralize } from '../../lib/forms';
+import { handleLoadError } from '../../lib/loadError';
+import { parseTab } from '../../lib/incidents';
+import type { IncidentSummary } from '../../lib/incidentTypes';
+import type { PageResponse } from '../../lib/types';
+import { loginUrl } from '../../lib/redirect';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect(loginUrl(Astro.url.pathname + Astro.url.search));
+
+const params = Astro.url.searchParams;
+const isTech = user.role === 'TECHNICIAN';
+const tab = parseTab(params.get('tab'), user.role);
+const page = parseOptionalInt(params.get('page') ?? '', PAGE_BOUNDS) ?? 0;
+const api = backendFor(Astro.cookies);
+
+let result: PageResponse<IncidentSummary> | null = null;
+let error: string | null = null;
+try {
+  result = tab === 'assigned' ? await api.assignedIncidents({ page, size: 15 }) : await api.myIncidents({ page, size: 15 });
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+function pageHref(p: number): string {
+  const sp = new URLSearchParams();
+  if (isTech) sp.set('tab', tab);
+  if (p > 0) sp.set('page', String(p));
+  const qs = sp.toString();
+  return `/incidents${qs ? `?${qs}` : ''}`;
+}
+
+if (result && result.totalPages > 0 && page >= result.totalPages) {
+  return Astro.redirect(pageHref(result.totalPages - 1));
+}
+
+const heading = tab === 'assigned' ? 'Assigned to me' : 'My incidents';
+---
+
+<Layout title={`${heading} · I-ITSM`}>
+  <div class="row-between">
+    <h1>Incidents</h1>
+    <span class="button-row">
+      {user.role === 'ADMIN' && <a class="btn btn-secondary" href="/search">Search all incidents</a>}
+      <a class="btn" href="/incidents/new">Report incident</a>
+    </span>
+  </div>
+
+  {
+    isTech && (
+      <nav class="tabs" aria-label="Incident lists">
+        <a href="/incidents?tab=assigned" aria-current={tab === 'assigned' ? 'page' : undefined}>Assigned to me</a>
+        <a href="/incidents?tab=mine" aria-current={tab === 'mine' ? 'page' : undefined}>My incidents</a>
+      </nav>
+    )
+  }
+
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    result && (
+      <>
+        <p class="muted">{pluralize(result.totalElements, 'incident')}</p>
+        {result.content.length === 0 ? (
+          <div class="card empty-state">
+            <p>{tab === 'assigned' ? 'No incidents are assigned to you right now.' : 'You have not reported any incidents yet.'}</p>
+            {tab === 'mine' && <p><a href="/incidents/new">Report an incident</a></p>}
+          </div>
+        ) : (
+          <IncidentTable incidents={result.content} caption={heading} />
+        )}
+        <nav class="pager" aria-label="Pagination">
+          {result.page > 0 ? <a href={pageHref(result.page - 1)} rel="prev">Previous</a> : <span class="muted">Previous</span>}
+          <span>Page {result.page + 1} of {Math.max(result.totalPages, 1)}</span>
+          {result.page + 1 < result.totalPages ? <a href={pageHref(result.page + 1)} rel="next">Next</a> : <span class="muted">Next</span>}
+        </nav>
+      </>
+    )
+  }
+</Layout>
