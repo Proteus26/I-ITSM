@@ -174,7 +174,7 @@ summed from `backend/build/test-results/test/*.xml`:
 
 | Suite | Test files / classes | Tests executed | Failures |
 |---|---|---|---|
-| Backend (JUnit 5, Testcontainers PostgreSQL 17) | 39 classes | 331 | 0 |
+| Backend (JUnit 5, Testcontainers PostgreSQL 17) | 40 classes | 335 | 0 |
 | Frontend (Vitest) | 22 files | 420 (parameterised cases counted separately) | 0 |
 | **Total** | 61 | **751** | **0** |
 

@@ -81,7 +81,7 @@ one-to-one onto the implementation; the mapping is in [10-user-guide-and-demo.md
 | G3 | Make priority, assignment and SLA logic replaceable | Strategy interfaces, selectable by administrator setting (priority) or configuration (assignment; the admin setting is stored but not yet read, see chapter 5) |
 | G4 | Never lose history | Every status change publishes an event that is audited in the same transaction |
 | G5 | Basic enterprise security | JWT with revocation, BCrypt, role checks, CSRF defences, input validation ([08-exceptions-and-security.md](08-exceptions-and-security.md)) |
-| G6 | Be testable and tested | 331 backend and 420 frontend automated tests ([09-test-cases.md](09-test-cases.md)) |
+| G6 | Be testable and tested | 335 backend and 420 frontend automated tests ([09-test-cases.md](09-test-cases.md)) |
 | G7 | Run anywhere with one command | `docker compose up --build` |
 
 ## 1.6 Scope
@@ -103,7 +103,6 @@ one-to-one onto the implementation; the mapping is in [10-user-guide-and-demo.md
 * Attachments on incidents.
 * Pausing the SLA clock while an incident waits for information from the reporter.
 * Automatic closing of VERIFIED incidents (the state machine allows `SYSTEM` to close, but no scheduler does it).
-* The admin setting `assignment.strategy` is not yet read by the assignment selector (the environment variable is).
 * Correlated incidents are only shown, not linked or merged into a parent incident.
 * Shared (multi-node) login throttle and round-robin pointer: both are in memory per instance.
 * Native mobile client, SSO/OAuth with an external provider, real payment or cloud integrations.
