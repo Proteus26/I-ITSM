@@ -122,3 +122,8 @@ export function formErrorState(e: ApiError): FormErrorState {
   if (Object.keys(fieldErrors).length > 0) return { message: 'Please fix the highlighted fields.', fieldErrors };
   return { message: e.isServerError ? SERVER_ERROR_MESSAGE : e.detail, fieldErrors };
 }
+
+/** Looks a `?notice=` key up in a map of messages, ignoring inherited members such as `toString`. */
+export function lookupNotice(map: Readonly<Record<string, string>>, key: string | null | undefined): string | undefined {
+  return key != null && Object.hasOwn(map, key) ? map[key] : undefined;
+}

@@ -22,9 +22,11 @@ interface Props {
   max?: number;
   maxlength?: number;
   placeholder?: string;
+  /** Prefix of the element id (default "f"); set it when the same field name appears in several forms on one page. */
+  idPrefix?: string;
 }
-const { name, label, type = 'text', value = '', error, hint, invalid = false, describedby, autocomplete, required = false, options, min, max, maxlength, placeholder } = Astro.props;
-const id = `f-${name}`;
+const { name, label, type = 'text', value = '', error, hint, invalid = false, describedby, autocomplete, required = false, options, min, max, maxlength, placeholder, idPrefix = 'f' } = Astro.props;
+const id = `${idPrefix}-${name}`;
 const isInvalid = invalid || !!error;
 const describedBy = [error ? `${id}-error` : null, hint ? `${id}-hint` : null, invalid ? describedby : null].filter(Boolean).join(' ') || undefined;
 ---

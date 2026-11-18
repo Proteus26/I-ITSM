@@ -184,7 +184,9 @@ class IncidentLifecycleTest {
     @Test
     fun `reassigning from an active status sends the incident back to ASSIGNED`() {
         val acknowledged = assigned().apply { transitionTo(ACKNOWLEDGED, tech, t0) }
+        assertEquals(t0, acknowledged.acknowledgedAt)
         assertEquals(StatusChange(ACKNOWLEDGED, ASSIGNED), acknowledged.assign(3, Actor.SYSTEM, t0.plusSeconds(5)))
+        assertNull(acknowledged.acknowledgedAt) // the new technician has not responded yet
         assertEquals(3L, acknowledged.assigneeId)
         assertEquals(ASSIGNED, acknowledged.status)
         assertEquals(t0.plusSeconds(5), acknowledged.updatedAt)

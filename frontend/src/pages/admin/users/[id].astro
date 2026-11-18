@@ -6,7 +6,7 @@ import Alert from '../../../components/Alert.astro';
 import RoleBadge from '../../../components/RoleBadge.astro';
 import StatusBadge from '../../../components/StatusBadge.astro';
 import { backendFor } from '../../../lib/backend';
-import { formErrorState, formatDate, formatLogin, formString, confirmMismatch, LEVEL_OPTIONS, parseActive } from '../../../lib/forms';
+import { formErrorState, formatDate, formatLogin, formString, confirmMismatch, LEVEL_OPTIONS, lookupNotice, parseActive } from '../../../lib/forms';
 import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../../lib/intent';
 import { handleLoadError } from '../../../lib/loadError';
 import { buildUserPatch, type UserForm } from '../../../lib/userPatch';
@@ -21,7 +21,7 @@ const NOTICES: Record<string, string> = { created: 'User created.', updated: 'Ch
   deactivated: 'User deactivated. Their sessions were logged out.',
   activated: 'User activated.',
 };
-const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
+const notice = lookupNotice(NOTICES, Astro.url.searchParams.get('notice'));
 
 let user: UserResponse | null = null;
 let error: string | null = null;

@@ -5,6 +5,21 @@ const employee = { role: 'EMPLOYEE' } as const;
 const tech = { role: 'TECHNICIAN' } as const;
 const admin = { role: 'ADMIN' } as const;
 
+describe('incident and admin settings routes', () => {
+  it('lets every role into /incidents', () => {
+    for (const u of [employee, tech, admin]) {
+      for (const p of ['/incidents', '/incidents/new', '/incidents/7']) expect(decideAccess(p, u)).toEqual({ type: 'allow' });
+    }
+  });
+  it('keeps categories and settings admin only', () => {
+    for (const p of ['/admin/categories', '/admin/settings']) {
+      expect(decideAccess(p, employee)).toEqual({ type: 'forbidden' });
+      expect(decideAccess(p, tech)).toEqual({ type: 'forbidden' });
+      expect(decideAccess(p, admin)).toEqual({ type: 'allow' });
+    }
+  });
+});
+
 describe('decideAccess', () => {
   it.each(['/', '/login', '/register', '/logout', '/api/auth/me', '/api', '/some-unknown-page', '/administrator'])(
     '%s is public',
@@ -13,7 +28,7 @@ describe('decideAccess', () => {
     },
   );
 
-  it.each(['/dashboard', '/account', '/admin/users'])('%s needs login', (p) => {
+  it.each(['/dashboard', '/account', '/admin/users', '/admin/categories', '/admin/settings', '/incidents', '/incidents/new', '/incidents/12'])('%s needs login', (p) => {
     expect(decideAccess(p, null)).toEqual({ type: 'login' });
   });
 

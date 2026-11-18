@@ -28,6 +28,8 @@ services:
       JWT_TTL: ${JWT_TTL:-8h}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@itsm.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+      DEMO_DATA: ${DEMO_DATA:-false}
+      ITSM_MAIL_GATEWAY: ${ITSM_MAIL_GATEWAY:-logging}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     depends_on:

@@ -1,0 +1,426 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import FormField from '../../components/FormField.astro';
+import TextAreaField from '../../components/TextAreaField.astro';
+import IncidentStatusBadge from '../../components/IncidentStatusBadge.astro';
+import PriorityBadge from '../../components/PriorityBadge.astro';
+import IncidentTimeline from '../../components/IncidentTimeline.astro';
+import { backendFor } from '../../lib/backend';
+import { formErrorState, formatDateTime, formString, lookupNotice } from '../../lib/forms';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
+import { handleLoadError } from '../../lib/loadError';
+import { humanize } from '../../lib/p4';
+import {
+  ACTION_INTENT,
+  ACTION_LABEL,
+  CONFIRM_MESSAGE,
+  MAX_FEEDBACK_COMMENT,
+  MAX_ROOT_CAUSE,
+  MAX_TEXT,
+  NOTICES,
+  NOTE_TYPE_LABEL,
+  SIMPLE_ACTIONS,
+  allowedNoteTypes,
+  dueInfo,
+  impactLabel,
+  isFinished,
+  parseActionForm,
+  parseNoteForm,
+  urgencyLabel,
+  visibleActions,
+} from '../../lib/incidents';
+import type {
+  ActionBody,
+} from '../../lib/incidents';
+import type {
+  AssignRequest,
+  CategorySummary,
+  ClassifyRequest,
+  FeedbackRequest,
+  IncidentAction,
+  IncidentDetail,
+  IncidentNote,
+  ReasonRequest,
+  RequestInfoRequest,
+  ResolveRequest,
+  ResumeRequest,
+  TechnicianRecommendation,
+} from '../../lib/incidentTypes';
+import type { UserResponse } from '../../lib/types';
+
+const idParam = Astro.params.id ?? '';
+if (!/^\d{1,15}$/.test(idParam)) return Astro.rewrite('/404');
+const id = Number(idParam);
+const api = backendFor(Astro.cookies);
+const here = `/incidents/${id}`;
+const RECOMMENDED_INTENT = 'assign-recommended';
+
+let incident: IncidentDetail | null = null;
+let error: string | null = null;
+try {
+  incident = await api.getIncident(id);
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+// What was posted, so the form that failed keeps its values and errors.
+let submitted: { intent: string; values: Record<string, string> } | null = null;
+let fieldErrors: Record<string, string> = {};
+
+/** Calls the backend for an action with an already validated body. */
+function callAction(action: IncidentAction, body: ActionBody): Promise<unknown> {
+  switch (action) {
+    case 'ACKNOWLEDGE': return api.acknowledgeIncident(id);
+    case 'START': return api.startIncident(id);
+    case 'REQUEST_INFO': return api.requestInfo(id, body as RequestInfoRequest);
+    case 'RESUME': return api.resumeIncident(id, body as ResumeRequest);
+    case 'RESOLVE': return api.resolveIncident(id, body as ResolveRequest);
+    case 'VERIFY': return api.verifyIncident(id);
+    case 'REOPEN': return api.reopenIncident(id, body as ReasonRequest);
+    case 'CLOSE': return api.closeIncident(id);
+    case 'CANCEL': return api.cancelIncident(id, body as ReasonRequest);
+    case 'FEEDBACK': return api.submitFeedback(id, body as FeedbackRequest);
+    case 'CLASSIFY': return api.classifyIncident(id, body as ClassifyRequest);
+    case 'ASSIGN': return api.assignIncident(id, body as AssignRequest);
+  }
+}
+
+if (incident && Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const current = incident;
+  submitted = {
+    intent: formString(form, 'intent'),
+    values: Object.fromEntries([...form.entries()].filter((e): e is [string, string] => typeof e[1] === 'string')),
+  };
+  const fail = (message: string, errors: Record<string, string> = {}, status = 400) => {
+    error = message;
+    fieldErrors = errors;
+    Astro.response.status = status;
+  };
+  const handlers: Record<string, (f: FormData) => Promise<Response | undefined>> = {};
+  for (const action of Object.keys(ACTION_INTENT) as IncidentAction[]) {
+    handlers[ACTION_INTENT[action]] = async (f) => {
+      if (!current.actions.includes(action)) return void fail('This action is not available for the incident right now.', {}, 409);
+      const parsed = parseActionForm(action, f);
+      if (!parsed.ok) return void fail('Please fix the highlighted fields.', parsed.errors);
+      await callAction(action, parsed.value);
+      return Astro.redirect(`${here}?notice=${ACTION_INTENT[action]}`);
+    };
+  }
+  // The recommendation buttons post their own intent so errors and preselection stay with the right form.
+  handlers[RECOMMENDED_INTENT] = handlers[ACTION_INTENT.ASSIGN]!;
+  handlers['add-note'] = async (f) => {
+    const parsed = parseNoteForm(f, allowedNoteTypes(current.noteTypes));
+    if (!parsed.ok) return void fail('Please fix the highlighted fields.', parsed.errors);
+    await api.addIncidentNote(id, parsed.value);
+    return Astro.redirect(`${here}?notice=add-note`);
+  };
+  try {
+    const result = await dispatchIntent<Response | undefined>(form, handlers);
+    if (!result.known) fail(UNKNOWN_INTENT_MESSAGE);
+    else if (result.value) return result.value;
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    const state = formErrorState(r);
+    fail(state.message, state.fieldErrors, r.status);
+    if (r.status === 409) {
+      // The incident changed meanwhile: show its current state and actions.
+      try { incident = await api.getIncident(id); } catch { /* keep the page as it was */ }
+    }
+  }
+}
+
+const notices = Astro.request.method === 'GET' ? Astro.url.searchParams : new URLSearchParams();
+const reported = notices.get('reported') === '1';
+const notice = lookupNotice(NOTICES, notices.get('notice'));
+
+// Everything below is secondary data: a failure only hides that block.
+let notes: IncidentNote[] = [];
+let notesFailed = false;
+let categories: CategorySummary[] = [];
+let technicians: UserResponse[] = [];
+let recommendations: TechnicianRecommendation[] = [];
+const actions = visibleActions(incident?.actions);
+const noteTypes = allowedNoteTypes(incident?.noteTypes);
+
+if (incident) {
+  const inc = incident;
+  const settle = async <T,>(p: Promise<T>, fallback: T): Promise<T> => p.catch(() => fallback);
+  [notes, categories, technicians, recommendations] = await Promise.all([
+    api.incidentNotes(id).catch(() => { notesFailed = true; return [] as IncidentNote[]; }),
+    actions.includes('CLASSIFY') ? settle(api.listCategories(), [] as CategorySummary[]) : Promise.resolve([] as CategorySummary[]),
+    actions.includes('ASSIGN')
+      ? settle(api.listUsers({ role: 'TECHNICIAN', active: true, size: 100 }).then((p) => p.content), [] as UserResponse[])
+      : Promise.resolve([] as UserResponse[]),
+    actions.includes('ASSIGN')
+      ? settle(api.assignmentRecommendations({ category: inc.categoryCode ?? undefined, priority: inc.priority ?? undefined }), [] as TechnicianRecommendation[])
+      : Promise.resolve([] as TechnicianRecommendation[]),
+  ]);
+}
+
+/** Value of a field in the form that was just posted (or the fallback when another form was posted). */
+const val = (intent: string, name: string, fallback = ''): string => (submitted?.intent === intent ? (submitted.values[name] ?? fallback) : fallback);
+/** Field errors of the form that was just posted. */
+const errs = (intent: string): Record<string, string> => (submitted?.intent === intent ? fieldErrors : {});
+/** A general (not per-field) error of the assign card, shown inside the form that was posted. */
+const assignError = (intent: string): string | null => (submitted?.intent === intent && error && !Object.keys(fieldErrors).length ? error : null);
+
+const now = new Date();
+const finished = incident ? isFinished(incident.status) : false;
+const responseDue = incident ? dueInfo(incident.responseDueAt, finished || !!incident.acknowledgedAt, now) : null;
+const resolutionDue = incident ? dueInfo(incident.resolutionDueAt, finished, now) : null;
+const simple = actions.filter((a) => SIMPLE_ACTIONS.includes(a));
+const withForm = actions.filter((a) => !SIMPLE_ACTIONS.includes(a) && a !== 'ASSIGN' && a !== 'CLASSIFY');
+const categoryOptions = [{ value: '', label: 'Choose a category' }, ...categories.map((c) => ({ value: c.code, label: `${c.name} (${c.code})` }))];
+const technicianOptions = [
+  { value: '', label: 'Choose a technician' },
+  ...technicians.map((t) => ({ value: String(t.id), label: t.technician ? `${t.fullName} (${t.technician.level})` : t.fullName })),
+];
+---
+
+<Layout title={incident ? `${incident.number} · I-ITSM` : 'Incident · I-ITSM'}>
+  <p><a href="/incidents">&larr; Incidents</a></p>
+  {reported && <Alert kind="success">Your incident was reported. We will keep you informed as it progresses.</Alert>}
+  {notice && <Alert kind="success">{notice}</Alert>}
+  {error && !(actions.includes('ASSIGN') && (assignError('assign') || assignError(RECOMMENDED_INTENT))) && <Alert kind="error">{error}</Alert>}
+
+  {
+    incident && (
+      <>
+        <div class="title-line">
+          <h1>{incident.number}: {incident.title}</h1>
+          <IncidentStatusBadge status={incident.status} />
+          <PriorityBadge priority={incident.priority} />
+        </div>
+        {incident.priorityExplanation && <p class="muted">Priority: {incident.priorityExplanation}</p>}
+
+        {
+          reported && (
+            <section class="card" aria-labelledby="h-next">
+              <h2 id="h-next">What happens next</h2>
+              <dl class="details">
+                <dt>Priority</dt>
+                <dd>
+                  <PriorityBadge priority={incident.priority} />
+                  {incident.priorityExplanation ? ` ${incident.priorityExplanation}` : ''}
+                </dd>
+                <dt>Assigned to</dt>
+                <dd>{incident.assignee?.fullName ?? 'Nobody yet. An administrator will assign it.'}</dd>
+                <dt>First response by</dt>
+                <dd>{responseDue!.text}</dd>
+                <dt>Resolution by</dt>
+                <dd>{resolutionDue!.text}</dd>
+              </dl>
+            </section>
+          )
+        }
+
+        <section class="card" aria-labelledby="h-facts">
+          <h2 id="h-facts">Details</h2>
+          <dl class="details">
+            <dt>Reporter</dt><dd>{incident.reporter.fullName}</dd>
+            <dt>Assignee</dt><dd>{incident.assignee?.fullName ?? 'Unassigned'}</dd>
+            <dt>Category</dt><dd>{incident.categoryName ?? incident.categoryCode ?? 'Not classified yet'}</dd>
+            <dt>Service</dt><dd>{incident.serviceName ?? 'None'}</dd>
+            <dt>Impact</dt><dd>{impactLabel(incident.impact)}</dd>
+            <dt>Urgency</dt><dd>{urgencyLabel(incident.urgency)}</dd>
+            <dt>Affected users</dt><dd>{incident.affectedUsers}</dd>
+            <dt>First response by</dt>
+            <dd>
+              {responseDue!.text}
+              {responseDue!.overdue && <span class="badge badge-danger overdue">Overdue</span>}
+              {incident.acknowledgedAt && <span class="muted"> (acknowledged {formatDateTime(incident.acknowledgedAt)})</span>}
+            </dd>
+            <dt>Resolution by</dt>
+            <dd>
+              {resolutionDue!.text}
+              {resolutionDue!.overdue && <span class="badge badge-danger overdue">Overdue</span>}
+            </dd>
+            <dt>Reported</dt><dd>{formatDateTime(incident.createdAt)}</dd>
+            {incident.resolvedAt && (<><dt>Resolved</dt><dd>{formatDateTime(incident.resolvedAt)}</dd></>)}
+            {incident.closedAt && (<><dt>Closed</dt><dd>{formatDateTime(incident.closedAt)}</dd></>)}
+            <dt>Last updated</dt><dd>{formatDateTime(incident.updatedAt)}</dd>
+          </dl>
+        </section>
+
+        <section class="card" aria-labelledby="h-desc">
+          <h2 id="h-desc">Description</h2>
+          <p class="prose">{incident.description}</p>
+        </section>
+
+        {
+          (incident.resolutionSummary || incident.rootCause) && (
+            <section class="card" aria-labelledby="h-res">
+              <h2 id="h-res">Resolution</h2>
+              {incident.resolutionSummary && <p class="prose">{incident.resolutionSummary}</p>}
+              {incident.rootCause && <p class="prose"><strong>Root cause:</strong> {incident.rootCause}</p>}
+            </section>
+          )
+        }
+
+        {
+          incident.feedbackRating !== null && (
+            <section class="card" aria-labelledby="h-fb">
+              <h2 id="h-fb">Feedback</h2>
+              <p>Rating: <strong>{incident.feedbackRating} / 5</strong></p>
+              {incident.feedbackComment && <p class="prose">{incident.feedbackComment}</p>}
+            </section>
+          )
+        }
+
+        {
+          actions.length > 0 && (
+            <section aria-labelledby="h-actions">
+              <h2 id="h-actions">Actions</h2>
+              {
+                simple.length > 0 && (
+                  <div class="button-row card">
+                    {simple.map((a) => (
+                      <form method="post" action={here} data-confirm={CONFIRM_MESSAGE[a]}>
+                        <input type="hidden" name="intent" value={ACTION_INTENT[a]} />
+                        <button type="submit" class={a === 'CLOSE' ? 'btn btn-secondary' : 'btn'}>{ACTION_LABEL[a]}</button>
+                      </form>
+                    ))}
+                  </div>
+                )
+              }
+              <div class="action-grid">
+                {withForm.map((a) => {
+                  const intent = ACTION_INTENT[a];
+                  const e = errs(intent);
+                  return (
+                    <section class="card" aria-labelledby={`h-${intent}`}>
+                      <h3 id={`h-${intent}`}>{ACTION_LABEL[a]}</h3>
+                      <form method="post" action={here} data-confirm={CONFIRM_MESSAGE[a]}>
+                        <input type="hidden" name="intent" value={intent} />
+                        {a === 'REQUEST_INFO' && <TextAreaField idPrefix={intent} name="question" label="Question for the reporter" value={val(intent, 'question')} error={e.question} required maxlength={MAX_TEXT} />}
+                        {a === 'RESUME' && <TextAreaField idPrefix={intent} name="response" label="Response (optional)" value={val(intent, 'response')} error={e.response} maxlength={MAX_TEXT} hint="Add the information that was asked for, if you are the reporter." />}
+                        {a === 'RESOLVE' && (
+                          <>
+                            <TextAreaField idPrefix={intent} name="summary" label="What was done" value={val(intent, 'summary')} error={e.summary} required maxlength={MAX_TEXT} />
+                            <TextAreaField idPrefix={intent} name="rootCause" label="Root cause (optional)" value={val(intent, 'rootCause')} error={e.rootCause} maxlength={MAX_ROOT_CAUSE} rows={2} />
+                          </>
+                        )}
+                        {(a === 'REOPEN' || a === 'CANCEL') && <TextAreaField idPrefix={intent} name="reason" label="Reason (optional)" value={val(intent, 'reason')} error={e.reason} maxlength={MAX_TEXT} rows={2} />}
+                        {
+                          a === 'FEEDBACK' && (
+                            <>
+                              <fieldset aria-describedby={e.rating ? 'fb-rating-error' : undefined}>
+                                <legend>Rating</legend>
+                                <div class="button-row">
+                                  {[1, 2, 3, 4, 5].map((n) => (
+                                    <label class="checkbox">
+                                      <input type="radio" name="rating" value={String(n)} checked={val(intent, 'rating') === String(n)} required />
+                                      {n}
+                                    </label>
+                                  ))}
+                                </div>
+                                <p class="hint">1 = very unhappy, 5 = very happy.</p>
+                                {e.rating && <p class="error" id="fb-rating-error">{e.rating}</p>}
+                              </fieldset>
+                              <TextAreaField idPrefix={intent} name="comment" label="Comment (optional)" value={val(intent, 'comment')} error={e.comment} maxlength={MAX_FEEDBACK_COMMENT} rows={3} />
+                            </>
+                          )
+                        }
+                        <button type="submit" class={a === 'CANCEL' ? 'btn btn-danger' : 'btn'}>{ACTION_LABEL[a]}</button>
+                      </form>
+                    </section>
+                  );
+                })}
+
+                {
+                  actions.includes('CLASSIFY') && (
+                    <section class="card" aria-labelledby="h-classify">
+                      <h3 id="h-classify">Classify</h3>
+                      <form method="post" action={here}>
+                        <input type="hidden" name="intent" value="classify" />
+                        <FormField name="categoryCode" label="Category" value={val('classify', 'categoryCode', incident.categoryCode ?? '')} error={errs('classify').categoryCode} options={categoryOptions} required />
+                        <button type="submit" class="btn">Classify</button>
+                      </form>
+                    </section>
+                  )
+                }
+
+                {
+                  actions.includes('ASSIGN') && (
+                    <section class="card" aria-labelledby="h-assign">
+                      <h3 id="h-assign">{incident.assignee ? 'Reassign' : 'Assign'}</h3>
+                      {recommendations.length > 0 ? (
+                        <>
+                          <p class="muted">Recommended technicians:</p>
+                          {(assignError(RECOMMENDED_INTENT) ?? errs(RECOMMENDED_INTENT).technicianId) && <p class="error" role="alert">{assignError(RECOMMENDED_INTENT) ?? errs(RECOMMENDED_INTENT).technicianId}</p>}
+                          <ul class="plain-list">
+                            {recommendations.map((r) => (
+                              <li>
+                                <form method="post" action={here} class="inline-form">
+                                  <input type="hidden" name="intent" value={RECOMMENDED_INTENT} />
+                                  <input type="hidden" name="technicianId" value={String(r.technicianId)} />
+                                  <button type="submit" class="btn btn-secondary btn-small">Assign to {r.technicianName}</button>
+                                </form>
+                                <span class="hint">{r.reason}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : (
+                        <p class="muted">No recommendation available: nobody with capacity matches.</p>
+                      )}
+                      <form method="post" action={here}>
+                        <input type="hidden" name="intent" value="assign" />
+                        <FormField name="technicianId" label="Or choose a technician" value={val('assign', 'technicianId')} error={errs('assign').technicianId} options={technicianOptions} />
+                        {assignError('assign') && <p class="error" role="alert">{assignError('assign')}</p>}
+                        <button type="submit" class="btn">Assign</button>
+                      </form>
+                    </section>
+                  )
+                }
+              </div>
+            </section>
+          )
+        }
+
+        <section class="card" aria-labelledby="h-notes">
+          <h2 id="h-notes">Notes ({notes.length})</h2>
+          {notesFailed && <p class="muted">The notes could not be loaded right now.</p>}
+          {!notesFailed && notes.length === 0 && <p class="muted">No notes yet.</p>}
+          {
+            notes.map((n) => (
+              <article class="note">
+                <div class="note-meta">
+                  <strong>{n.author.fullName}</strong>
+                  <span>{humanize(n.type)}</span>
+                  <time datetime={n.createdAt}>{formatDateTime(n.createdAt)}</time>
+                </div>
+                <p class="prose">{n.body}</p>
+              </article>
+            ))
+          }
+          {
+            noteTypes.length > 0 && (
+              <form method="post" action={here} class="note-form">
+                <h3>Add a note</h3>
+                <input type="hidden" name="intent" value="add-note" />
+                {
+                  noteTypes.length === 1 ? (
+                    <input type="hidden" name="type" value={noteTypes[0]} />
+                  ) : (
+                    <FormField name="type" label="Type" value={val('add-note', 'type', noteTypes[0])} error={errs('add-note').type} options={noteTypes.map((t) => ({ value: t, label: NOTE_TYPE_LABEL[t] }))} />
+                  )
+                }
+                <TextAreaField idPrefix="note" name="body" label={noteTypes.length === 1 ? NOTE_TYPE_LABEL[noteTypes[0]!] : 'Note'} value={val('add-note', 'body')} error={errs('add-note').body} required maxlength={MAX_TEXT} />
+                <button type="submit" class="btn">Add note</button>
+              </form>
+            )
+          }
+        </section>
+
+        <IncidentTimeline incidentId={incident.id} />
+      </>
+    )
+  }
+</Layout>

@@ -1,0 +1,192 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import FormField from '../../components/FormField.astro';
+import StatusBadge from '../../components/StatusBadge.astro';
+import { backendFor } from '../../lib/backend';
+import { CRITICALITY_OPTIONS, SETTING_DEFS, optionsFor, settingFieldErrors, parseServiceCriticality, parseSettingsForm, settingValue } from '../../lib/adminSettings';
+import { formErrorState, formString, lookupNotice } from '../../lib/forms';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
+import { handleLoadError } from '../../lib/loadError';
+import type { AdminService, SettingItem } from '../../lib/incidentTypes';
+
+const api = backendFor(Astro.cookies);
+const NOTICES: Record<string, string> = { saved: 'Settings saved.', unchanged: 'Nothing changed.', service: 'Service saved.' };
+const notice = Astro.request.method === 'GET' ? lookupNotice(NOTICES, Astro.url.searchParams.get('notice')) : undefined;
+
+let settings: SettingItem[] = [];
+let services: AdminService[] = [];
+let error: string | null = null;
+let loadError: string | null = null;
+try {
+  [settings, services] = await Promise.all([api.getSettings(), api.adminServices()]);
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  loadError = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+let fieldErrors: Record<string, string> = {};
+let failedService = 0;
+/** Settings of a partly failed save: which were stored and which were not. */
+let savedLabels: string[] = [];
+let failedLabel = '';
+let shown: Record<string, string> = {};
+
+if (!loadError && Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  shown = Object.fromEntries([...form.entries()].filter((e): e is [string, string] => typeof e[1] === 'string'));
+  try {
+    const result = await dispatchIntent<Response | undefined>(form, {
+      save: async () => {
+        const parsed = parseSettingsForm(form, settings);
+        if (!parsed.ok) {
+          fieldErrors = parsed.errors;
+          error = 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        // One PUT per setting: when one fails, the ones before it are already stored, so say which is which.
+        const saved: string[] = [];
+        for (const u of parsed.value) {
+          const def = SETTING_DEFS.find((d) => d.key === u.key)!;
+          try {
+            await api.updateSetting(u.key, u.value);
+            saved.push(def.label);
+          } catch (e) {
+            const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+            if (r instanceof Response) return r;
+            const state = formErrorState(r);
+            fieldErrors = settingFieldErrors(def, state.fieldErrors);
+            if (!fieldErrors[def.field]) fieldErrors[def.field] = state.message;
+            savedLabels = saved;
+            failedLabel = def.label;
+            const notTried = parsed.value.slice(saved.length + 1).length;
+            error = `${def.label} could not be saved.` +
+              (saved.length > 0 ? ` Already saved: ${saved.join(', ')}.` : ' Nothing was saved.') +
+              (notTried > 0 ? ' The remaining settings were not saved.' : '');
+            Astro.response.status = r.status;
+            // Show what is stored now.
+            try { settings = await api.getSettings(); } catch { /* keep the list as loaded */ }
+            return;
+          }
+        }
+        return Astro.redirect(`/admin/settings?notice=${parsed.value.length > 0 ? 'saved' : 'unchanged'}`);
+      },
+      service: async () => {
+        const parsed = parseServiceCriticality(form);
+        if (!parsed.ok) {
+          failedService = Number(formString(form, 'serviceId')) || 0;
+          fieldErrors = parsed.errors;
+          error = 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        failedService = parsed.value.id;
+        await api.updateService(parsed.value.id, { criticality: parsed.value.criticality });
+        return Astro.redirect('/admin/settings?notice=service');
+      },
+    });
+    if (!result.known) {
+      error = UNKNOWN_INTENT_MESSAGE;
+      Astro.response.status = 400;
+    } else if (result.value) {
+      return result.value;
+    }
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    const state = formErrorState(r);
+    fieldErrors = { ...state.fieldErrors };
+    // A rejected `value` belongs to the setting that was being saved; show it as a general error.
+    error = state.message;
+    Astro.response.status = r.status;
+  }
+}
+const settingsPosted = shown.intent === 'save';
+const settingFailed = failedLabel !== '';
+---
+
+<Layout title="Settings · I-ITSM">
+  <h1>Settings</h1>
+  {notice && <Alert kind="success">{notice}</Alert>}
+  {error && <Alert kind="error">{error}</Alert>}
+  {settingFailed && savedLabels.length > 0 && <Alert kind="success">Saved: {savedLabels.join(', ')}.</Alert>}
+  {loadError && <Alert kind="error">{loadError}</Alert>}
+
+  {
+    !loadError && (
+      <>
+        <section class="card card-md" aria-labelledby="h-strategies">
+          <h2 id="h-strategies">Strategies</h2>
+          <form method="post" action="/admin/settings">
+            <input type="hidden" name="intent" value="save" />
+            {SETTING_DEFS.map((def) => {
+              const current = settingValue(settings, def.key);
+              return (
+                <FormField
+                  name={def.field}
+                  label={def.label}
+                  value={settingsPosted && !savedLabels.includes(def.label) ? (shown[def.field] ?? '') : (current ?? def.options[0]!.value)}
+                  options={optionsFor(def, current)}
+                  hint={def.hint}
+                  error={fieldErrors[def.field]}
+                />
+              );
+            })}
+            <button class="btn" type="submit">Save settings</button>
+          </form>
+        </section>
+
+        <section aria-labelledby="h-services">
+          <h2 id="h-services">Services</h2>
+          <p class="muted">Criticality (1 to 4) raises the priority of incidents on the service.</p>
+          {
+            services.length === 0 ? (
+              <div class="card empty-state"><p>There are no services.</p></div>
+            ) : (
+              <div class="table-wrap" role="region" aria-label="Services" tabindex="0">
+                <table class="stack">
+                  <caption class="sr-only">Services</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Code</th>
+                      <th scope="col">Owner team</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Criticality</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {services.map((s) => (
+                      <tr>
+                        <td data-label="Name">{s.name}</td>
+                        <td data-label="Code">{s.code}</td>
+                        <td data-label="Owner team">{s.ownerTeam ?? '—'}</td>
+                        <td data-label="Status"><StatusBadge active={s.active} /></td>
+                        <td data-label="Criticality">
+                          <form method="post" action="/admin/settings" class="inline-form">
+                            <input type="hidden" name="intent" value="service" />
+                            <input type="hidden" name="serviceId" value={String(s.id)} />
+                            <label class="sr-only" for={`crit-${s.id}`}>Criticality of {s.name}</label>
+                            <select id={`crit-${s.id}`} name="criticality" aria-invalid={failedService === s.id && fieldErrors.criticality ? 'true' : undefined}>
+                              {CRITICALITY_OPTIONS.map((o) => (
+                                <option value={o.value} selected={o.value === (failedService === s.id && shown.criticality ? shown.criticality : String(s.criticality))}>{o.label}</option>
+                              ))}
+                            </select>
+                            <button class="btn btn-secondary btn-small" type="submit">Save</button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
+        </section>
+      </>
+    )
+  }
+</Layout>

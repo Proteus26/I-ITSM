@@ -1,0 +1,144 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import FormField from '../../components/FormField.astro';
+import StatusBadge from '../../components/StatusBadge.astro';
+import { backendFor } from '../../lib/backend';
+import { CATEGORY_CODE } from '../../lib/incidents';
+import { MAX_CATEGORY_DESCRIPTION, MAX_CATEGORY_NAME, normalizeCategoryCode, parseCreateCategory, parseEditCategory } from '../../lib/adminSettings';
+import { formErrorState, formString, lookupNotice, parseActive } from '../../lib/forms';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
+import { handleLoadError } from '../../lib/loadError';
+import type { AdminCategory } from '../../lib/incidentTypes';
+
+const api = backendFor(Astro.cookies);
+const NOTICES: Record<string, string> = { created: 'Category created.', updated: 'Category saved.', activated: 'Category activated.', deactivated: 'Category deactivated.' };
+const notice = Astro.request.method === 'GET' ? lookupNotice(NOTICES, Astro.url.searchParams.get('notice')) : undefined;
+
+let error: string | null = null;
+let fieldErrors: Record<string, string> = {};
+/** Which form the errors belong to: "create" or the code of the edited category. */
+let failedForm = '';
+let posted = { code: '', name: '', description: '' };
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const code = normalizeCategoryCode(formString(form, 'code'));
+  posted = { code, name: formString(form, 'name'), description: formString(form, 'description') };
+  try {
+    const result = await dispatchIntent<Response | undefined>(form, {
+      create: async () => {
+        const parsed = parseCreateCategory(form);
+        if (!parsed.ok) {
+          failedForm = 'create';
+          fieldErrors = parsed.errors;
+          error = 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.createCategory(parsed.value);
+        return Astro.redirect('/admin/categories?notice=created');
+      },
+      edit: async () => {
+        if (!CATEGORY_CODE.test(code)) {
+          error = 'Invalid request.';
+          Astro.response.status = 400;
+          return;
+        }
+        const parsed = parseEditCategory(form);
+        if (!parsed.ok) {
+          failedForm = code;
+          fieldErrors = parsed.errors;
+          error = 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.updateCategory(code, parsed.value);
+        return Astro.redirect('/admin/categories?notice=updated');
+      },
+      'set-active': async () => {
+        const wanted = parseActive(formString(form, 'active'));
+        if (wanted === undefined || !CATEGORY_CODE.test(code)) {
+          error = 'Invalid request.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.updateCategory(code, { active: wanted });
+        return Astro.redirect(`/admin/categories?notice=${wanted ? 'activated' : 'deactivated'}`);
+      },
+    });
+    if (!result.known) {
+      error = UNKNOWN_INTENT_MESSAGE;
+      Astro.response.status = 400;
+    } else if (result.value) {
+      return result.value;
+    }
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    const state = formErrorState(r);
+    failedForm = formString(form, 'intent') === 'create' ? 'create' : code;
+    fieldErrors = state.fieldErrors;
+    error = state.message;
+    Astro.response.status = r.status;
+  }
+}
+
+let categories: AdminCategory[] = [];
+let loadError: string | null = null;
+try {
+  categories = await api.adminCategories();
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  loadError = r.userMessage;
+  Astro.response.status = r.status;
+}
+const createErrors = failedForm === 'create' ? fieldErrors : {};
+---
+
+<Layout title="Categories · I-ITSM">
+  <h1>Categories</h1>
+  {notice && <Alert kind="success">{notice}</Alert>}
+  {error && <Alert kind="error">{error}</Alert>}
+  {loadError && <Alert kind="error">{loadError}</Alert>}
+
+  <section class="card card-md" aria-labelledby="h-new">
+    <h2 id="h-new">New category</h2>
+    <form method="post" action="/admin/categories">
+      <p class="hint required-hint">* required</p>
+      <input type="hidden" name="intent" value="create" />
+      <FormField name="code" label="Code" value={failedForm === 'create' ? posted.code : ''} error={createErrors.code} required maxlength={50} hint="Capital letters, digits and underscores, for example NETWORK. It cannot be changed later." />
+      <FormField name="name" label="Name" value={failedForm === 'create' ? posted.name : ''} error={createErrors.name} required maxlength={MAX_CATEGORY_NAME} />
+      <FormField name="description" label="Description" value={failedForm === 'create' ? posted.description : ''} error={createErrors.description} maxlength={MAX_CATEGORY_DESCRIPTION} />
+      <button class="btn" type="submit">Create category</button>
+    </form>
+  </section>
+
+  <h2>All categories</h2>
+  {categories.length === 0 && !loadError && <div class="card empty-state"><p>There are no categories yet.</p></div>}
+  {
+    categories.map((c) => {
+      const mine = failedForm === c.code;
+      const e = mine ? fieldErrors : {};
+      return (
+        <section class="card" aria-labelledby={`h-${c.code}`}>
+          <h3 id={`h-${c.code}`}>{c.code} <StatusBadge active={c.active} /></h3>
+          <form method="post" action="/admin/categories">
+            <input type="hidden" name="intent" value="edit" />
+            <input type="hidden" name="code" value={c.code} />
+            <FormField idPrefix={`c-${c.code}`} name="name" label="Name" value={mine ? posted.name : c.name} error={e.name} required maxlength={MAX_CATEGORY_NAME} />
+            <FormField idPrefix={`c-${c.code}`} name="description" label="Description" value={mine ? posted.description : (c.description ?? '')} error={e.description} maxlength={MAX_CATEGORY_DESCRIPTION} />
+            <button class="btn" type="submit">Save</button>
+          </form>
+          <form method="post" action="/admin/categories" data-confirm={c.active ? 'Deactivate this category? It will no longer be offered for new incidents.' : undefined} class="inline-form">
+            <input type="hidden" name="intent" value="set-active" />
+            <input type="hidden" name="code" value={c.code} />
+            <input type="hidden" name="active" value={String(!c.active)} />
+            <button class={c.active ? 'btn btn-danger btn-small' : 'btn btn-secondary btn-small'} type="submit">{c.active ? 'Deactivate' : 'Activate'}</button>
+          </form>
+        </section>
+      );
+    })
+  }
+</Layout>

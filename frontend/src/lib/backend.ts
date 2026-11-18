@@ -30,6 +30,33 @@ import type {
   WorkloadRow,
 } from './p4Types';
 import { toQueryString } from './p4';
+import type {
+  AddNoteRequest,
+  AdminCategory,
+  AdminService,
+  AssignRequest,
+  CategorySuggestion,
+  CategorySummary,
+  ClassifyRequest,
+  CreateCategoryRequest,
+  CreateIncidentRequest,
+  FeedbackRequest,
+  IncidentDetail,
+  IncidentNote,
+  IncidentSummary,
+  ReasonRequest,
+  RecommendationQuery,
+  RequestInfoRequest,
+  ResolveRequest,
+  ResumeRequest,
+  ServiceSummary,
+  SettingItem,
+  SimilarIncident,
+  SimilarQuery,
+  TechnicianRecommendation,
+  UpdateCategoryRequest,
+  UpdateServiceRequest,
+} from './incidentTypes';
 
 export const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -222,6 +249,131 @@ export class BackendClient {
 
   reportTrend(days = 30): Promise<TrendPoint[]> {
     return this.request('GET', `/api/reports/trend${queryString({ days })}`);
+  }
+
+  // ---- P2: incidents, categories; P3/P5: services, settings, assignment, intelligence ----
+
+  createIncident(req: CreateIncidentRequest): Promise<IncidentDetail> {
+    return this.request('POST', '/api/incidents', req);
+  }
+
+  myIncidents(query: { page?: number; size?: number } = {}): Promise<PageResponse<IncidentSummary>> {
+    return this.request('GET', `/api/incidents/mine${queryString(query)}`);
+  }
+
+  assignedIncidents(query: { page?: number; size?: number } = {}): Promise<PageResponse<IncidentSummary>> {
+    return this.request('GET', `/api/incidents/assigned${queryString(query)}`);
+  }
+
+  getIncident(id: number): Promise<IncidentDetail> {
+    return this.request('GET', `/api/incidents/${id}`);
+  }
+
+  incidentNotes(id: number): Promise<IncidentNote[]> {
+    return this.request('GET', `/api/incidents/${id}/notes`);
+  }
+
+  addIncidentNote(id: number, req: AddNoteRequest): Promise<IncidentNote> {
+    return this.request('POST', `/api/incidents/${id}/notes`, req);
+  }
+
+  acknowledgeIncident(id: number): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/acknowledge`);
+  }
+
+  startIncident(id: number): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/start`);
+  }
+
+  requestInfo(id: number, req: RequestInfoRequest): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/request-info`, req);
+  }
+
+  resumeIncident(id: number, req: ResumeRequest = {}): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/resume`, req);
+  }
+
+  resolveIncident(id: number, req: ResolveRequest): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/resolve`, req);
+  }
+
+  verifyIncident(id: number): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/verify`);
+  }
+
+  reopenIncident(id: number, req: ReasonRequest = {}): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/reopen`, req);
+  }
+
+  closeIncident(id: number): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/close`);
+  }
+
+  cancelIncident(id: number, req: ReasonRequest = {}): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/cancel`, req);
+  }
+
+  submitFeedback(id: number, req: FeedbackRequest): Promise<IncidentDetail> {
+    return this.request('POST', `/api/incidents/${id}/feedback`, req);
+  }
+
+  classifyIncident(id: number, req: ClassifyRequest): Promise<IncidentDetail> {
+    return this.request('POST', `/api/admin/incidents/${id}/classify`, req);
+  }
+
+  assignIncident(id: number, req: AssignRequest): Promise<IncidentDetail> {
+    return this.request('POST', `/api/admin/incidents/${id}/assign`, req);
+  }
+
+  /** Active categories, for any logged-in user. */
+  listCategories(): Promise<CategorySummary[]> {
+    return this.request('GET', '/api/categories');
+  }
+
+  adminCategories(): Promise<AdminCategory[]> {
+    return this.request('GET', '/api/admin/categories');
+  }
+
+  createCategory(req: CreateCategoryRequest): Promise<AdminCategory> {
+    return this.request('POST', '/api/admin/categories', req);
+  }
+
+  updateCategory(code: string, req: UpdateCategoryRequest): Promise<AdminCategory> {
+    return this.request('PATCH', `/api/admin/categories/${encodeURIComponent(code)}`, req);
+  }
+
+  /** Active services, for any logged-in user. */
+  listServices(): Promise<ServiceSummary[]> {
+    return this.request('GET', '/api/services');
+  }
+
+  adminServices(): Promise<AdminService[]> {
+    return this.request('GET', '/api/admin/services');
+  }
+
+  updateService(id: number, req: UpdateServiceRequest): Promise<AdminService> {
+    return this.request('PATCH', `/api/admin/services/${id}`, req);
+  }
+
+  /** The suggestion, or undefined when nothing matches (204). */
+  suggestCategory(title: string, description = ''): Promise<CategorySuggestion | undefined> {
+    return this.request('GET', `/api/intelligence/suggest-category${queryString({ title, description })}`);
+  }
+
+  similarIncidents(query: SimilarQuery): Promise<SimilarIncident[]> {
+    return this.request('GET', `/api/intelligence/similar${queryString(query)}`);
+  }
+
+  assignmentRecommendations(query: RecommendationQuery = {}): Promise<TechnicianRecommendation[]> {
+    return this.request('GET', `/api/admin/assignment/recommendations${queryString(query)}`);
+  }
+
+  getSettings(): Promise<SettingItem[]> {
+    return this.request('GET', '/api/admin/settings');
+  }
+
+  updateSetting(key: string, value: string): Promise<SettingItem> {
+    return this.request('PUT', `/api/admin/settings/${encodeURIComponent(key)}`, { value });
   }
 }
 

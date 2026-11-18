@@ -1,5 +1,7 @@
 package com.itsm.incident
 
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 
@@ -7,14 +9,16 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 interface IncidentRepository : JpaRepository<Incident, Long>, JpaSpecificationExecutor<Incident> {
     fun findByNumber(number: String): Incident?
 
-    fun findByReporterIdOrderByCreatedAtDesc(reporterId: Long): List<Incident>
+    fun findByReporterId(reporterId: Long, pageable: Pageable): Page<Incident>
 
-    fun findByAssigneeIdAndStatusInOrderByCreatedAtDesc(assigneeId: Long, statuses: Collection<IncidentStatus>): List<Incident>
+    fun existsByReporterIdAndTitle(reporterId: Long, title: String): Boolean
+
+    fun findByAssigneeIdAndStatusIn(assigneeId: Long, statuses: Collection<IncidentStatus>, pageable: Pageable): Page<Incident>
 
     /** Active incidents per technician; assignment strategies (P5) use this as workload. */
     fun countByAssigneeIdAndStatusIn(assigneeId: Long, statuses: Collection<IncidentStatus>): Long
 }
 
 interface IncidentNoteRepository : JpaRepository<IncidentNote, Long> {
-    fun findByIncidentIdOrderByCreatedAtAsc(incidentId: Long): List<IncidentNote>
+    fun findByIncidentIdOrderByCreatedAtAscIdAsc(incidentId: Long): List<IncidentNote>
 }

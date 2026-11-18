@@ -133,6 +133,24 @@ cd frontend && pnpm build
 
 CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull request.
 
+## Incidents (P2)
+
+Reporting runs a pipeline (suggest category, classify, priority, SLA deadlines, automatic assignment); the lifecycle
+actions publish the events that audit and notifications (P4) listen to. All endpoints need a token; details, rules and
+what is left to do are in [docs/p2.md](docs/p2.md).
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `POST /api/incidents` | any role | `{ title, description, impact, urgency, affectedUsers?, serviceId?, categoryCode? }`; 201 with the detail |
+| `GET /api/incidents/mine`, `GET /api/incidents/assigned` | reporter / technicians | paged (`page`, `size` up to 100); `assigned` is active incidents by priority then deadline |
+| `GET /api/incidents/{id}`, `GET`/`POST /api/incidents/{id}/notes` | reporter, assignee, admin | detail includes `actions` and `noteTypes` for the caller |
+| `POST /api/incidents/{id}/` `acknowledge` `start` `request-info` `resume` `resolve` `verify` `reopen` `close` `cancel` `feedback` | by lifecycle role | 403 wrong role, 409 impossible move |
+| `POST /api/admin/incidents/{id}/classify`, `.../assign` | admin | classify a NEW incident (then auto-assign); assign or reassign to an active technician |
+| `GET /api/categories`; `GET`/`POST`/`PATCH /api/admin/categories` | any / admin | categories are deactivated, not deleted |
+
+With `DEMO_DATA=true` the backend creates demo accounts at startup (password `ChangeMe123!`): `employee@itsm.local` and
+`tech1@itsm.local` to `tech3@itsm.local` (different skills), plus five incidents in different states. Development only.
+
 ## SLA and priority (P3, minimal)
 
 The backend has an IT service catalog (`GET /api/services`, admin CRUD under `/api/admin/services`), two priority
@@ -154,8 +172,9 @@ See [docs/p3.md](docs/p3.md) for the contracts and what is still open.
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW` | backend | `5` / `15m` (failed logins per email before 429) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | backend | none for `bootRun`; `admin@itsm.local` / `ChangeMe123!` in docker compose |
 | `ITSM_MAIL_GATEWAY` / `MAIL_HOST` / `MAIL_PORT` | backend | `logging` / `localhost` / `1025`; set the gateway to `smtp` to send real email (see [docs/p4.md](docs/p4.md) for all notification settings) |
-| `ASSIGNMENT_STRATEGY`  | backend  | `skill-least-loaded`; or `round-robin` (see [docs/p5.md](docs/p5.md)) |
 | `SLA_MONITOR_ENABLED` / `SLA_MONITOR_INTERVAL` | backend | `true` / `60000`; whether and how often (ms) open incidents are checked against their SLA deadlines |
+| `DEMO_DATA`            | backend  | `false`; `true` creates demo users and incidents at startup (development only, public passwords) |
+| `ASSIGNMENT_STRATEGY`  | backend  | `skill-least-loaded`; or `round-robin` (see [docs/p5.md](docs/p5.md)) |
 | `FRONTEND_BASE_URL`    | backend  | `http://localhost:4321`; prefix for links in notification emails |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
 | `BACKEND_TIMEOUT_MS`   | frontend | `5000`; how long a page waits for the backend before treating it as unreachable |

@@ -10,23 +10,31 @@ const { user } = Astro.props;
 const path = Astro.url.pathname;
 
 // Add a link here when a page for a role is added (keep in sync with ROUTE_RULES in lib/access.ts).
+const adminLinks = [
+  { href: '/admin/users', label: 'Users' },
+  { href: '/admin/categories', label: 'Categories' },
+  { href: '/admin/settings', label: 'Settings' },
+  { href: '/admin/reports', label: 'Reports' },
+  { href: '/admin/audit', label: 'Audit log' },
+];
 const links = user
   ? [
       { href: '/dashboard', label: 'Dashboard' },
+      { href: '/incidents', label: 'Incidents' },
+      { href: '/incidents/new', label: 'Report incident' },
       { href: '/search', label: 'Search' },
       { href: '/account', label: 'Account' },
-      ...(user.role === 'ADMIN'
-        ? [
-            { href: '/admin/users', label: 'Users' },
-            { href: '/admin/reports', label: 'Reports' },
-            { href: '/admin/audit', label: 'Audit log' },
-          ]
-        : []),
     ]
   : [
       { href: '/login', label: 'Login' },
       { href: '/register', label: 'Register' },
     ];
+const showAdmin = user?.role === 'ADMIN';
+const inAdmin = path === '/admin' || path.startsWith('/admin/');
+// "/incidents" must not stay highlighted on "/incidents/new": the most specific link wins.
+const current = links
+  .filter((l) => path === l.href || path.startsWith(`${l.href}/`))
+  .sort((x, y) => y.href.length - x.href.length)[0]?.href;
 ---
 
 <header class="site-header">
@@ -34,8 +42,22 @@ const links = user
   <nav aria-label="Main">
     <ul>
       {links.map((l) => (
-        <li><a href={l.href} aria-current={path === l.href || path.startsWith(`${l.href}/`) ? 'page' : undefined}>{l.label}</a></li>
+        <li><a href={l.href} aria-current={l.href === current ? 'page' : undefined}>{l.label}</a></li>
       ))}
+      {
+        showAdmin && (
+          <li class="admin-menu">
+            <details>
+              <summary class:list={{ 'in-admin': inAdmin }}>Admin{inAdmin && <span class="sr-only"> (current section)</span>}</summary>
+              <ul>
+                {adminLinks.map((l) => (
+                  <li><a href={l.href} aria-current={path === l.href || path.startsWith(`${l.href}/`) ? 'page' : undefined}>{l.label}</a></li>
+                ))}
+              </ul>
+            </details>
+          </li>
+        )
+      }
     </ul>
   </nav>
   {
@@ -51,6 +73,7 @@ const links = user
     )
   }
 </header>
+{showAdmin && <script is:inline src="/scripts/nav-menu.js" defer></script>}
 
 <style>
   .site-header {
@@ -64,7 +87,24 @@ const links = user
     border-bottom: 1px solid var(--border);
   }
   .brand { font-weight: 700; font-size: 1.15rem; text-decoration: none; color: var(--text); }
-  ul { display: flex; gap: 1rem; list-style: none; margin: 0; padding: 0; }
+  ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; list-style: none; margin: 0; padding: 0; }
+  .admin-menu details { position: relative; }
+  .admin-menu summary { cursor: pointer; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
+  .admin-menu summary.in-admin { border-bottom-color: var(--primary); font-weight: 600; }
+  .admin-menu details > ul {
+    position: absolute;
+    z-index: 5;
+    top: 100%;
+    left: 0;
+    flex-direction: column;
+    gap: 0;
+    min-width: 10rem;
+    padding: 0.25rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .admin-menu details > ul a { display: block; padding: 0.35rem 0; }
   nav a { text-decoration: none; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
   nav a[aria-current='page'] { border-bottom-color: var(--primary); font-weight: 600; }
   .who { margin-left: auto; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
@@ -73,7 +113,8 @@ const links = user
 
   @media (max-width: 40rem) {
     .site-header { gap: 0.25rem 1rem; }
-    nav { margin-left: auto; }
+    nav { margin-left: auto; flex: 1 1 100%; }
+    .admin-menu details > ul { position: static; border: 0; padding: 0 0 0 0.75rem; }
     .who { flex: 1 0 100%; margin-left: 0; flex-wrap: nowrap; padding-top: 0.25rem; border-top: 1px solid var(--border); }
     .who-name { min-width: 0; }
     .who form { margin-left: auto; }
