@@ -1,0 +1,154 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import FormField from '../../components/FormField.astro';
+import StatusBadge from '../../components/StatusBadge.astro';
+import { backendFor } from '../../lib/backend';
+import { MAX_SERVICE_DESCRIPTION, MAX_SERVICE_NAME, MAX_SERVICE_TEAM, normalizeServiceCode, parseCreateService, parseEditService } from '../../lib/adminConfig';
+import { CRITICALITY_OPTIONS } from '../../lib/adminSettings';
+import { formErrorState, formString, lookupNotice, parseActive, parseIntField } from '../../lib/forms';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
+import { handleLoadError } from '../../lib/loadError';
+import type { AdminService } from '../../lib/incidentTypes';
+
+const api = backendFor(Astro.cookies);
+const NOTICES: Record<string, string> = { created: 'Service created.', updated: 'Service saved.', activated: 'Service activated.', deactivated: 'Service deactivated.' };
+const notice = Astro.request.method === 'GET' ? lookupNotice(NOTICES, Astro.url.searchParams.get('notice')) : undefined;
+
+let error: string | null = null;
+let fieldErrors: Record<string, string> = {};
+/** Which form the errors belong to: "create" or the id of the edited service. */
+let failedForm = '';
+let shown: Record<string, string> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  shown = Object.fromEntries([...form.entries()].filter((e): e is [string, string] => typeof e[1] === 'string'));
+  if (shown.code) shown.code = normalizeServiceCode(shown.code);
+  const serviceId = parseIntField(formString(form, 'serviceId'), { min: 1 }).value;
+  try {
+    const result = await dispatchIntent<Response | undefined>(form, {
+      create: async () => {
+        failedForm = 'create';
+        const parsed = parseCreateService(form);
+        if (!parsed.ok) {
+          fieldErrors = parsed.errors;
+          error = 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.createService(parsed.value);
+        return Astro.redirect('/admin/services?notice=created');
+      },
+      edit: async () => {
+        failedForm = String(serviceId ?? '');
+        const parsed = parseEditService(form);
+        if (!parsed.ok) {
+          fieldErrors = parsed.errors;
+          error = 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.updateService(parsed.value.id, parsed.value.request);
+        return Astro.redirect('/admin/services?notice=updated');
+      },
+      'set-active': async () => {
+        failedForm = String(serviceId ?? '');
+        const wanted = parseActive(formString(form, 'active'));
+        if (wanted === undefined || serviceId === undefined) {
+          error = 'Invalid request.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.updateService(serviceId, { active: wanted });
+        return Astro.redirect(`/admin/services?notice=${wanted ? 'activated' : 'deactivated'}`);
+      },
+    });
+    if (!result.known) {
+      error = UNKNOWN_INTENT_MESSAGE;
+      Astro.response.status = 400;
+    } else if (result.value) {
+      return result.value;
+    }
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    const state = formErrorState(r);
+    fieldErrors = { ...state.fieldErrors };
+    // A duplicate code or name is a 409 without field details: show it next to the form it belongs to.
+    if (r.status === 409 && !fieldErrors.code && !fieldErrors.name) {
+      if (failedForm === 'create' && /code/i.test(r.detail)) fieldErrors.code = r.detail;
+      else fieldErrors.name = r.detail;
+    }
+    error = state.message;
+    Astro.response.status = r.status;
+  }
+}
+
+let services: AdminService[] = [];
+let loadError: string | null = null;
+try {
+  services = await api.adminServices();
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  loadError = r.userMessage;
+  Astro.response.status = r.status;
+}
+const createErrors = failedForm === 'create' ? fieldErrors : {};
+const mine = (s: AdminService) => failedForm === String(s.id);
+---
+
+<Layout title="Services · I-ITSM">
+  <h1>IT services</h1>
+  <p class="muted">
+    The catalog employees pick from when they report an incident. The criticality (1 to 4) raises the priority of incidents on the service.
+    Services are deactivated, not deleted, because incidents refer to them. <a href="/admin/sla">SLA policies</a> can be set per service.
+  </p>
+  {notice && <Alert kind="success">{notice}</Alert>}
+  {error && <Alert kind="error">{error}</Alert>}
+  {loadError && <Alert kind="error">{loadError}</Alert>}
+
+  <section class="card card-md" aria-labelledby="h-new">
+    <h2 id="h-new">New service</h2>
+    <form method="post" action="/admin/services">
+      <p class="hint required-hint">* required</p>
+      <input type="hidden" name="intent" value="create" />
+      <FormField name="code" label="Code" value={failedForm === 'create' ? (shown.code ?? '') : ''} error={createErrors.code} required maxlength={50} hint="Capital letters, digits and underscores, for example PAYMENT. It cannot be changed later." />
+      <FormField name="name" label="Name" value={failedForm === 'create' ? (shown.name ?? '') : ''} error={createErrors.name} required maxlength={MAX_SERVICE_NAME} />
+      <FormField name="description" label="Description" value={failedForm === 'create' ? (shown.description ?? '') : ''} error={createErrors.description} maxlength={MAX_SERVICE_DESCRIPTION} />
+      <FormField name="criticality" label="Criticality" value={failedForm === 'create' ? (shown.criticality ?? '2') : '2'} options={CRITICALITY_OPTIONS} error={createErrors.criticality} required />
+      <FormField name="ownerTeam" label="Owner team" value={failedForm === 'create' ? (shown.ownerTeam ?? '') : ''} error={createErrors.ownerTeam} maxlength={MAX_SERVICE_TEAM} />
+      <button class="btn" type="submit">Create service</button>
+    </form>
+  </section>
+
+  <h2>All services</h2>
+  {services.length === 0 && !loadError && <div class="card empty-state"><p>There are no services yet.</p></div>}
+  {
+    services.map((s) => {
+      const e = mine(s) ? fieldErrors : {};
+      const v = (field: string, stored: string) => (mine(s) && shown[field] !== undefined ? shown[field]! : stored);
+      return (
+        <section class="card" aria-labelledby={`h-s${s.id}`}>
+          <h3 id={`h-s${s.id}`}>{s.name} <span class="muted">{s.code}</span> <StatusBadge active={s.active} /></h3>
+          <form method="post" action="/admin/services">
+            <input type="hidden" name="intent" value="edit" />
+            <input type="hidden" name="serviceId" value={String(s.id)} />
+            <FormField idPrefix={`s${s.id}`} name="name" label="Name" value={v('name', s.name)} error={e.name} required maxlength={MAX_SERVICE_NAME} />
+            <FormField idPrefix={`s${s.id}`} name="description" label="Description" value={v('description', s.description ?? '')} error={e.description} maxlength={MAX_SERVICE_DESCRIPTION} />
+            <FormField idPrefix={`s${s.id}`} name="criticality" label="Criticality" value={v('criticality', String(s.criticality))} options={CRITICALITY_OPTIONS} error={e.criticality} required />
+            <FormField idPrefix={`s${s.id}`} name="ownerTeam" label="Owner team" value={v('ownerTeam', s.ownerTeam ?? '')} error={e.ownerTeam} maxlength={MAX_SERVICE_TEAM} />
+            <button class="btn" type="submit">Save</button>
+          </form>
+          <form method="post" action="/admin/services" data-confirm={s.active ? 'Deactivate this service? It will no longer be offered when reporting incidents.' : undefined} class="inline-form">
+            <input type="hidden" name="intent" value="set-active" />
+            <input type="hidden" name="serviceId" value={String(s.id)} />
+            <input type="hidden" name="active" value={String(!s.active)} />
+            <button class={s.active ? 'btn btn-danger btn-small' : 'btn btn-secondary btn-small'} type="submit">{s.active ? 'Deactivate' : 'Activate'}</button>
+          </form>
+        </section>
+      );
+    })
+  }
+</Layout>
