@@ -47,8 +47,8 @@ class ReportServiceTest @Autowired constructor(
     @Test
     fun `incidents are counted per service and SLA compliance is a percentage`() {
         val byService = reports.byService().associate { it.serviceName to it.incidents }
-        assertThat(byService).containsEntry("Payment", 1L).containsEntry("VPN", 1L)
-            .containsEntry("Email", 1L).containsEntry("Unspecified", 1L)
+        assertThat(byService).containsEntry("Test Payment", 1L).containsEntry("Test VPN", 1L)
+            .containsEntry("Test Email", 1L).containsEntry("Unspecified", 1L)
 
         val sla = reports.slaCompliance()
         assertThat(sla.total).isEqualTo(4L)

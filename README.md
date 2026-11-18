@@ -133,6 +133,14 @@ cd frontend && pnpm build
 
 CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull request.
 
+## SLA and priority (P3, minimal)
+
+The backend has an IT service catalog (`GET /api/services`, admin CRUD under `/api/admin/services`), two priority
+strategies (`weighted`, `matrix`; chosen with the admin setting `priority.strategy`), SLA policies (P1 5 min / 30 min,
+P2 15 min / 2 h, P3 1 h / 8 h, P4 4 h / 24 h; a service can override them) and an `SlaMonitor` that records a warning at 75 %
+of the time and a breach when a deadline passes, publishing `SlaWarningRaised`, `SlaBreached` and `IncidentEscalated`.
+See [docs/p3.md](docs/p3.md) for the contracts and what is still open.
+
 ## Configuration
 
 | Variable               | Used by  | Default                                  |
@@ -147,6 +155,7 @@ CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull reque
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | backend | none for `bootRun`; `admin@itsm.local` / `ChangeMe123!` in docker compose |
 | `ITSM_MAIL_GATEWAY` / `MAIL_HOST` / `MAIL_PORT` | backend | `logging` / `localhost` / `1025`; set the gateway to `smtp` to send real email (see [docs/p4.md](docs/p4.md) for all notification settings) |
 | `ASSIGNMENT_STRATEGY`  | backend  | `skill-least-loaded`; or `round-robin` (see [docs/p5.md](docs/p5.md)) |
+| `SLA_MONITOR_ENABLED` / `SLA_MONITOR_INTERVAL` | backend | `true` / `60000`; whether and how often (ms) open incidents are checked against their SLA deadlines |
 | `FRONTEND_BASE_URL`    | backend  | `http://localhost:4321`; prefix for links in notification emails |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
 | `BACKEND_TIMEOUT_MS`   | frontend | `5000`; how long a page waits for the backend before treating it as unreachable |

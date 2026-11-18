@@ -131,7 +131,9 @@ class TestData(
     }
 
     private fun service(name: String): Long {
-        val id = jdbc.queryForObject("insert into it_services (name) values (?) returning id", Long::class.javaObjectType, name)!!
+        val id = jdbc.queryForObject("insert into it_services (name, code) values (?, ?) returning id", Long::class.javaObjectType,
+            name, "TEST_" + name.uppercase().replace(' ', '_'),
+        )!!
         serviceIds += id
         return id
     }
@@ -150,9 +152,9 @@ class TestData(
         val t1 = user("tech1", Role.TECHNICIAN, passwordHash = passwordHash)
         val t2 = user("tech2", Role.TECHNICIAN, passwordHash = passwordHash)
         val t3 = user("tech3", Role.TECHNICIAN, passwordHash = passwordHash)
-        val s1 = service("Payment")
-        val s2 = service("VPN")
-        val s3 = service("Email")
+        val s1 = service("Test Payment")
+        val s2 = service("Test VPN")
+        val s3 = service("Test Email")
 
         val i1 = incident(
             "INC-000001", "Payment app down", e1, "Checkout fails for every customer",
