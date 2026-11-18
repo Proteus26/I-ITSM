@@ -12,7 +12,7 @@ describe('incident and admin settings routes', () => {
     }
   });
   it('keeps categories and settings admin only', () => {
-    for (const p of ['/admin/categories', '/admin/settings']) {
+    for (const p of ['/admin/categories', '/admin/settings', '/admin/services', '/admin/sla']) {
       expect(decideAccess(p, employee)).toEqual({ type: 'forbidden' });
       expect(decideAccess(p, tech)).toEqual({ type: 'forbidden' });
       expect(decideAccess(p, admin)).toEqual({ type: 'allow' });

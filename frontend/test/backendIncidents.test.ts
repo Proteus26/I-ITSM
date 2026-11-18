@@ -64,6 +64,11 @@ describe('categories, services, settings, intelligence', () => {
     ['similarIncidents', () => api().similarIncidents({ title: 't', description: 'd', excludeId: 3 }), 'GET', '/api/intelligence/similar?title=t&description=d&excludeId=3', undefined],
     ['assignmentRecommendations', () => api().assignmentRecommendations({ category: 'NETWORK', priority: 'P1' }), 'GET', '/api/admin/assignment/recommendations?category=NETWORK&priority=P1', undefined],
     ['assignmentRecommendations (none)', () => api().assignmentRecommendations(), 'GET', '/api/admin/assignment/recommendations', undefined],
+    ['createService', () => api().createService({ code: 'X', name: 'X' }), 'POST', '/api/admin/services', { code: 'X', name: 'X' }],
+    ['slaPolicies', () => api().slaPolicies(), 'GET', '/api/admin/sla-policies', undefined],
+    ['createSlaPolicy', () => api().createSlaPolicy({ serviceId: 1, priority: 'P1', responseMinutes: 1, resolutionMinutes: 2 }), 'POST', '/api/admin/sla-policies', { serviceId: 1, priority: 'P1', responseMinutes: 1, resolutionMinutes: 2 }],
+    ['updateSlaPolicy', () => api().updateSlaPolicy(4, { warningThresholdPct: 60 }), 'PATCH', '/api/admin/sla-policies/4', { warningThresholdPct: 60 }],
+    ['deleteSlaPolicy', () => api().deleteSlaPolicy(4), 'DELETE', '/api/admin/sla-policies/4', undefined],
     ['getSettings', () => api().getSettings(), 'GET', '/api/admin/settings', undefined],
     ['updateSetting', () => api().updateSetting('priority.strategy', 'matrix'), 'PUT', '/api/admin/settings/priority.strategy', { value: 'matrix' }],
   ])('%s', async (_name, run, method, path, body) => {

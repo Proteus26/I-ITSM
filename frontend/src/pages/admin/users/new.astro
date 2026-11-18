@@ -2,9 +2,12 @@
 import Layout from '../../../layouts/Layout.astro';
 import FormField from '../../../components/FormField.astro';
 import Alert from '../../../components/Alert.astro';
+import SkillPicker from '../../../components/SkillPicker.astro';
 import { backendFor } from '../../../lib/backend';
+import { skillsFromForm } from '../../../lib/adminConfig';
 import { handleLoadError } from '../../../lib/loadError';
 import { CAPACITY_BOUNDS, confirmMismatch, formErrorState, formString, LEVEL_OPTIONS, optional, parseIntField, parseLevel, parseRole, parseSkills, ROLE_OPTIONS } from '../../../lib/forms';
+import type { CategorySummary } from '../../../lib/incidentTypes';
 import type { CreateUserRequest } from '../../../lib/types';
 
 const v = { role: 'EMPLOYEE', email: '', fullName: '', department: '', level: 'L1', maxActiveIncidents: '', skills: '' };
@@ -14,6 +17,7 @@ let fieldErrors: Record<string, string> = {};
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   for (const k of Object.keys(v) as (keyof typeof v)[]) v[k] = formString(form, k);
+  v.skills = skillsFromForm(form);
   const password = formString(form, 'password', false);
   const role = parseRole(v.role);
   const mismatch = confirmMismatch(password, formString(form, 'confirmPassword', false));
@@ -49,6 +53,13 @@ if (Astro.request.method === 'POST') {
     }
   }
 }
+let categories: CategorySummary[] | null = null;
+try {
+  categories = await backendFor(Astro.cookies).listCategories();
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+}
 ---
 
 <Layout title="Create user · I-ITSM">
@@ -73,7 +84,7 @@ if (Astro.request.method === 'POST') {
         <legend>Technician</legend>
         <FormField name="level" label="Level" value={v.level} error={fieldErrors.level} options={LEVEL_OPTIONS} />
         <FormField name="maxActiveIncidents" label="Max active incidents" type="number" min={1} value={v.maxActiveIncidents} error={fieldErrors.maxActiveIncidents} hint="Leave blank for the default." />
-        <FormField name="skills" label="Skills" value={v.skills} error={fieldErrors.skills} hint="Comma-separated category codes." />
+        <SkillPicker categories={categories} selected={v.skills} error={fieldErrors.skills} />
       </fieldset>
 
       <button class="btn" type="submit">Create user</button>

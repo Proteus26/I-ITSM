@@ -30,6 +30,7 @@ import type {
   WorkloadRow,
 } from './p4Types';
 import { toQueryString } from './p4';
+import type { CreateServiceRequest, CreateSlaPolicyRequest, SlaPolicy, UpdateSlaPolicyRequest } from './adminTypes';
 import type {
   AddNoteRequest,
   AdminCategory,
@@ -388,6 +389,27 @@ export class BackendClient {
 
   updateService(id: number, req: UpdateServiceRequest): Promise<AdminService> {
     return this.request('PATCH', `/api/admin/services/${id}`, req);
+  }
+
+  createService(req: CreateServiceRequest): Promise<AdminService> {
+    return this.request('POST', '/api/admin/services', req);
+  }
+
+  slaPolicies(): Promise<SlaPolicy[]> {
+    return this.request('GET', '/api/admin/sla-policies');
+  }
+
+  createSlaPolicy(req: CreateSlaPolicyRequest): Promise<SlaPolicy> {
+    return this.request('POST', '/api/admin/sla-policies', req);
+  }
+
+  updateSlaPolicy(id: number, req: UpdateSlaPolicyRequest): Promise<SlaPolicy> {
+    return this.request('PATCH', `/api/admin/sla-policies/${id}`, req);
+  }
+
+  /** Only service-specific overrides can be deleted (204). */
+  deleteSlaPolicy(id: number): Promise<void> {
+    return this.request('DELETE', `/api/admin/sla-policies/${id}`);
   }
 
   /** The suggestion, or undefined when nothing matches (204). */
