@@ -56,6 +56,10 @@ itsm:
   notifications:
     # {id} is replaced by the incident id; the email prefixes it with itsm.frontend-base-url.
     incident-link: ${ITSM_NOTIFICATION_LINK:/incidents/{id}}
+  sla:
+    # How often open incidents are checked against their SLA deadlines (milliseconds), and whether the check runs at all.
+    monitor-interval: ${SLA_MONITOR_INTERVAL:60000}
+    monitor-enabled: ${SLA_MONITOR_ENABLED:true}
   frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:4321}
 
 management:
