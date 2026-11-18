@@ -82,5 +82,16 @@ management:
         enabled: true
 
 springdoc:
+  # Set explicitly (and overridable) so springdoc does not log a "enabled by default" warning at every start.
+  # Set SPRINGDOC_ENABLED=false to switch the API docs off.
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:true}
   swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:true}
     path: /swagger-ui.html
+
+logging:
+  level:
+    # Entities are always referenced by id and never proxied, so Hibernate cannot (and need not) build a lazy-loading proxy
+    # for the Kotlin entities with final accessors; without this it logs a WARN with a stack trace per such entity at start.
+    org.hibernate.metamodel.internal.EntityRepresentationStrategyPojoStandard: ERROR
