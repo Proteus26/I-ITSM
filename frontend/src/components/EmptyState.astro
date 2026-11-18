@@ -1,0 +1,14 @@
+---
+// Friendly "nothing here yet" box with an optional call to action.
+interface Props {
+  message: string;
+  actionHref?: string;
+  actionLabel?: string;
+}
+const { message, actionHref, actionLabel } = Astro.props;
+---
+
+<div class="empty-state card">
+  <p>{message}</p>
+  {actionHref && actionLabel && <p><a class="btn" href={actionHref}>{actionLabel}</a></p>}
+</div>

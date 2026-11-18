@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import Nav from '../components/Nav.astro';
 import Alert from '../components/Alert.astro';
+import pkg from '../../package.json';
 
 interface Props {
   title?: string;
@@ -25,6 +26,11 @@ const { user, backendDown } = Astro.locals;
       {backendDown && <Alert kind="warning">The server could not be reached, so your login status could not be checked.</Alert>}
       <slot />
     </main>
+    <footer class="site-footer">
+      <span>I-ITSM v{pkg.version}</span>
+      <span aria-hidden="true">·</span>
+      <span>CS F213 / MAC F212 Object Oriented Programming, Semester I 2026–27</span>
+    </footer>
     <script is:inline src="/scripts/confirm.js" defer></script>
   </body>
 </html>
