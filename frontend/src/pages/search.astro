@@ -1,0 +1,163 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Alert from '../components/Alert.astro';
+import { backendFor } from '../lib/backend';
+import { formatDateTime, PAGE_BOUNDS, parseOptionalInt, pluralize } from '../lib/forms';
+import { handleLoadError } from '../lib/loadError';
+import { cleanSearchQuery, humanize, SORT_OPTIONS, toQueryString } from '../lib/p4';
+import { INCIDENT_STATUSES, PRIORITIES, SLA_STATUSES, type IncidentSearchResult } from '../lib/p4Types';
+import type { PageResponse } from '../lib/types';
+
+// The backend limits what each person can find: employees see their own incidents, technicians the ones assigned to
+// or reported by them, admins everything. Nothing is filtered here.
+const params = Astro.url.searchParams;
+const query = cleanSearchQuery(params);
+const page = parseOptionalInt(params.get('page') ?? '', PAGE_BOUNDS) ?? 0;
+const sort = query.sort ?? SORT_OPTIONS[0].value;
+
+let result: PageResponse<IncidentSearchResult> | null = null;
+let error: string | null = null;
+try {
+  result = await backendFor(Astro.cookies).searchIncidents({ ...query, sort, page, size: 15 });
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = r.userMessage;
+  Astro.response.status = r.status;
+}
+
+if (result && result.totalPages > 0 && page >= result.totalPages) {
+  return Astro.redirect(pageHref(result.totalPages - 1));
+}
+
+const filtered = Object.entries(query).some(([k, v]) => k !== 'sort' && v !== undefined);
+
+function pageHref(p: number): string {
+  return `/search?${toQueryString(query, p)}`;
+}
+
+const label = humanize;
+---
+
+<Layout title="Search incidents · I-ITSM">
+  <h1>Search incidents</h1>
+
+  <form method="get" action="/search" class="card filters" role="search" aria-label="Search incidents">
+    <div class="field">
+      <label for="f-number">Number</label>
+      <input id="f-number" name="number" value={query.number ?? ''} placeholder="INC-000123" />
+    </div>
+    <div class="field">
+      <label for="f-q">Search text</label>
+      <input id="f-q" name="q" type="search" value={query.q ?? ''} placeholder="Title or description" />
+    </div>
+    <div class="field">
+      <label for="f-from">Created from</label>
+      <input id="f-from" name="from" type="date" value={query.from ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-to">Created to</label>
+      <input id="f-to" name="to" type="date" value={query.to ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-status">Status</label>
+      <select id="f-status" name="status">
+        <option value="">Any</option>
+        {INCIDENT_STATUSES.map((s) => <option value={s} selected={s === query.status}>{label(s)}</option>)}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-priority">Priority</label>
+      <select id="f-priority" name="priority">
+        <option value="">Any</option>
+        {PRIORITIES.map((p) => <option value={p} selected={p === query.priority}>{p}</option>)}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-category">Category code</label>
+      <input id="f-category" name="category" value={query.category ?? ''} placeholder="NETWORK" />
+    </div>
+    <div class="field">
+      <label for="f-service">Service ID</label>
+      <input id="f-service" name="service" type="number" min="1" value={query.service ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-assignee">Assignee (user ID)</label>
+      <input id="f-assignee" name="assignee" type="number" min="1" value={query.assignee ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-reporter">Reporter (user ID)</label>
+      <input id="f-reporter" name="reporter" type="number" min="1" value={query.reporter ?? ''} />
+    </div>
+    <div class="field">
+      <label for="f-sla">SLA status</label>
+      <select id="f-sla" name="slaStatus">
+        <option value="">Any</option>
+        {SLA_STATUSES.map((s) => <option value={s} selected={s === query.slaStatus}>{label(s)}</option>)}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-sort">Sort by</label>
+      <select id="f-sort" name="sort">
+        {SORT_OPTIONS.map((o) => <option value={o.value} selected={o.value === sort}>{o.label}</option>)}
+      </select>
+    </div>
+    <div class="filter-actions">
+      <button class="btn" type="submit">Search</button>
+      <a href="/search">Reset</a>
+    </div>
+  </form>
+
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    result && (
+      <>
+        <p class="muted">{pluralize(result.totalElements, 'incident')} found</p>
+        {result.content.length === 0 ? (
+          <div class="card empty-state">
+            <p>{filtered ? 'No incidents match these filters.' : 'There are no incidents to show yet.'}</p>
+            {filtered && <p><a href="/search">Clear filters</a></p>}
+          </div>
+        ) : (
+          <div class="table-wrap" role="region" aria-label="Incidents" tabindex="0">
+            <table class="stack">
+              <caption class="sr-only">Incidents</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Number</th>
+                  <th scope="col">Title</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Priority</th>
+                  <th scope="col">Service</th>
+                  <th scope="col">Assignee</th>
+                  <th scope="col">Reporter</th>
+                  <th scope="col">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.content.map((i) => (
+                  <tr>
+                    <td data-label="Number">{i.number}</td>
+                    <td data-label="Title">{i.title}</td>
+                    <td data-label="Status">{label(i.status)}</td>
+                    <td data-label="Priority">{i.priority ?? '—'}</td>
+                    <td data-label="Service">{i.serviceName ?? '—'}</td>
+                    <td data-label="Assignee">{i.assigneeName ?? 'Unassigned'}</td>
+                    <td data-label="Reporter">{i.reporterName ?? `User ${i.reporterId}`}</td>
+                    <td data-label="Created"><time datetime={i.createdAt}>{formatDateTime(i.createdAt)}</time></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <nav class="pager" aria-label="Pagination">
+          {result.page > 0 ? <a href={pageHref(result.page - 1)} rel="prev">Previous</a> : <span class="muted">Previous</span>}
+          <span>Page {result.page + 1} of {Math.max(result.totalPages, 1)}</span>
+          {result.page + 1 < result.totalPages ? <a href={pageHref(result.page + 1)} rel="next">Next</a> : <span class="muted">Next</span>}
+        </nav>
+      </>
+    )
+  }
+</Layout>

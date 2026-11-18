@@ -3,6 +3,7 @@ package com.itsm.config
 import com.itsm.auth.AuthProperties
 import com.itsm.auth.UserJwtAuthenticationConverter
 import com.nimbusds.jose.jwk.source.ImmutableSecret
+import jakarta.servlet.DispatcherType
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.beans.factory.annotation.Value
@@ -54,6 +55,9 @@ class SecurityConfig(
             .cors { }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests {
+                // An SSE stream is re-dispatched when it completes. The bearer filter does not run again for that
+                // dispatch, so it would be rejected with 401; the original request was already authenticated.
+                it.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                 it.requestMatchers(
                     "/api/auth/login", "/api/auth/register", "/api/ping",
                     "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/error",

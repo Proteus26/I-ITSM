@@ -245,3 +245,79 @@ describe('BackendClient response validation', () => {
     expect(await new BackendClient(undefined, base).login({ email: 'a', password: 'b' }).catch((x) => x.status)).toBe(502);
   });
 });
+
+describe('BackendClient P4 endpoints', () => {
+  const client = () => new BackendClient('t', base);
+  const expectCall = (method: string, path: string) => {
+    const { url, init } = call();
+    expect(url).toBe(`${base}${path}`);
+    expect(init.method).toBe(method);
+  };
+
+  it('lists notifications with only the set filters', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ content: [] }));
+    await client().listNotifications({ unread: true, page: 0, size: 15 });
+    expectCall('GET', '/api/notifications?unread=true&page=0&size=15');
+  });
+
+  it('lists notifications without a query string by default, and keeps unread=false', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ content: [] }));
+    await client().listNotifications();
+    expectCall('GET', '/api/notifications');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(jsonRes({ content: [] }));
+    await client().listNotifications({ unread: false });
+    expectCall('GET', '/api/notifications?unread=false');
+  });
+
+  it('reads the unread count and marks notifications read with POST', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ unread: 3 }));
+    await expect(client().unreadCount()).resolves.toEqual({ unread: 3 });
+    expectCall('GET', '/api/notifications/unread-count');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(jsonRes({}));
+    await client().markNotificationRead(12);
+    expectCall('POST', '/api/notifications/12/read');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(jsonRes({ updated: 2 }));
+    await client().markAllNotificationsRead();
+    expectCall('POST', '/api/notifications/read-all');
+  });
+
+  it('builds the incident search query, encoding values and dropping empty ones', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ content: [] }));
+    await client().searchIncidents({ q: 'a b&c=d', status: 'NEW', service: 4, number: '', page: 2, size: 15, sort: 'createdAt,desc' });
+    expectCall('GET', '/api/incidents/search?q=a+b%26c%3Dd&status=NEW&service=4&page=2&size=15&sort=createdAt%2Cdesc');
+  });
+
+  it('loads incident history and the audit log', async () => {
+    fetchMock.mockResolvedValue(jsonRes([]));
+    await client().incidentHistory(5);
+    expectCall('GET', '/api/incidents/5/history');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(jsonRes({ content: [] }));
+    await client().searchAudit({ actor: 1, action: 'LOGIN_FAILED', from: '2026-01-01', page: 0, size: 25 });
+    expectCall('GET', '/api/admin/audit?actor=1&action=LOGIN_FAILED&from=2026-01-01&page=0&size=25');
+  });
+
+  it('calls the report endpoints', async () => {
+    const paths: [() => Promise<unknown>, string][] = [
+      [() => client().reportOverview(), '/api/reports/overview'],
+      [() => client().reportWorkload(), '/api/reports/technician-workload'],
+      [() => client().reportByService(), '/api/reports/by-service'],
+      [() => client().reportSlaCompliance(), '/api/reports/sla-compliance'],
+      [() => client().reportMttr(), '/api/reports/mttr'],
+      [() => client().reportTrend(), '/api/reports/trend?days=30'],
+      [() => client().reportTrend(7), '/api/reports/trend?days=7'],
+    ];
+    for (const [run, path] of paths) {
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValue(jsonRes({}));
+      await run();
+      expectCall('GET', path);
+    }
+  });
+});

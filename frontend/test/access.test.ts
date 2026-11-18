@@ -71,3 +71,30 @@ describe('dot segments cannot disguise a protected path', () => {
     expect(decideAccess('/api%2F..%2Fadmin', { role: 'EMPLOYEE' })).toEqual({ type: 'forbidden' });
   });
 });
+
+describe('P4 routes', () => {
+  it.each(['/notifications', '/search'])('%s needs login but any role may use it', (p) => {
+    expect(decideAccess(p, null)).toEqual({ type: 'login' });
+    for (const u of [employee, tech, admin]) expect(decideAccess(p, u)).toEqual({ type: 'allow' });
+  });
+
+  it.each(['/admin/audit', '/admin/reports'])('%s is for admins only', (p) => {
+    expect(decideAccess(p, null)).toEqual({ type: 'login' });
+    expect(decideAccess(p, employee)).toEqual({ type: 'forbidden' });
+    expect(decideAccess(p, tech)).toEqual({ type: 'forbidden' });
+    expect(decideAccess(p, admin)).toEqual({ type: 'allow' });
+  });
+
+  it('leaves /api/notifications/* to the backend (the page middleware skips /api)', () => {
+    for (const p of ['/api/notifications/stream', '/api/notifications/unread-count']) {
+      expect(decideAccess(p, null)).toEqual({ type: 'allow' });
+    }
+  });
+
+  it('is not fooled by variants of the new paths', () => {
+    for (const p of ['/Notifications/', '//search', '/admin/Audit', '/admin//reports', '/%61dmin/audit']) {
+      expect(decideAccess(p, null)).toEqual({ type: 'login' });
+    }
+    expect(decideAccess('/admin/Audit', employee)).toEqual({ type: 'forbidden' });
+  });
+});

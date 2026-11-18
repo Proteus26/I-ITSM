@@ -1,0 +1,170 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Alert from '../components/Alert.astro';
+import { backendFor } from '../lib/backend';
+import { formatDateTime, formString, PAGE_BOUNDS, parseOptionalInt, pluralize } from '../lib/forms';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../lib/intent';
+import { handleLoadError } from '../lib/loadError';
+import { safeInternalLink, toQueryString } from '../lib/p4';
+import type { NotificationItem } from '../lib/p4Types';
+import type { PageResponse } from '../lib/types';
+
+// The middleware guarantees a logged-in user here (see ROUTE_RULES in src/lib/access.ts).
+const api = backendFor(Astro.cookies);
+const params = Astro.url.searchParams;
+let unreadOnly = params.get('unread') === 'true';
+let page = parseOptionalInt(params.get('page') ?? '', PAGE_BOUNDS) ?? 0;
+let error: string | null = null;
+
+function pageHref(p: number): string {
+  const qs = toQueryString(unreadOnly ? { unread: 'true' } : {}, p);
+  return `/notifications?${qs}`;
+}
+
+// Each button posts a hidden `intent`; the page the user was on (filter and page number) is posted back too.
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  unreadOnly = formString(form, 'unread') === 'true';
+  page = parseOptionalInt(formString(form, 'page'), PAGE_BOUNDS) ?? 0;
+  try {
+    const result = await dispatchIntent<Response | undefined>(form, {
+      'mark-read': async () => {
+        const id = Number(formString(form, 'id'));
+        if (!Number.isInteger(id) || id < 1) {
+          error = 'Invalid request.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.markNotificationRead(id);
+        return Astro.redirect(pageHref(page));
+      },
+      'mark-all-read': async () => {
+        await api.markAllNotificationsRead();
+        return Astro.redirect(pageHref(0));
+      },
+    });
+    if (!result.known) {
+      error = UNKNOWN_INTENT_MESSAGE;
+      Astro.response.status = 400;
+    } else if (result.value) {
+      return result.value;
+    }
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    error = r.userMessage;
+    Astro.response.status = r.status;
+  }
+}
+
+let result: PageResponse<NotificationItem> | null = null;
+try {
+  result = await api.listNotifications({ unread: unreadOnly, page, size: 15 });
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  error = error ?? r.userMessage;
+  Astro.response.status = r.status;
+}
+
+// A page past the end (everything on it was just marked as read): go to the last page.
+if (result && result.totalPages > 0 && page >= result.totalPages) {
+  return Astro.redirect(pageHref(result.totalPages - 1));
+}
+---
+
+<Layout title="Notifications · I-ITSM">
+  <div class="row-between">
+    <h1>Notifications</h1>
+    <form method="post" action="/notifications">
+      <input type="hidden" name="intent" value="mark-all-read" />
+      <input type="hidden" name="unread" value={String(unreadOnly)} />
+      <button class="btn btn-secondary" type="submit">Mark all as read</button>
+    </form>
+  </div>
+
+  <form method="get" action="/notifications" class="card filters" role="search" aria-label="Filter notifications">
+    <div class="field">
+      <label for="f-unread">Show</label>
+      <select id="f-unread" name="unread">
+        <option value="" selected={!unreadOnly}>All notifications</option>
+        <option value="true" selected={unreadOnly}>Unread only</option>
+      </select>
+    </div>
+    <div class="filter-actions">
+      <button class="btn" type="submit">Filter</button>
+      <a href="/notifications">Reset</a>
+    </div>
+  </form>
+
+  <p id="new-notice" role="status" hidden>
+    New notifications have arrived. <a href={pageHref(0)}>Show them</a>
+  </p>
+
+  {error && <Alert kind="error">{error}</Alert>}
+
+  {
+    result && (
+      <>
+        <p class="muted">{pluralize(result.totalElements, 'notification')}</p>
+        {result.content.length === 0 ? (
+          <div class="card empty-state">
+            <p>{unreadOnly ? 'You have no unread notifications.' : 'You have no notifications yet.'}</p>
+          </div>
+        ) : (
+          <ul class="notes">
+            {result.content.map((n) => {
+              const link = safeInternalLink(n.link);
+              return (
+                <li class:list={['card', 'note', { unread: !n.read }]}>
+                  <div class="note-main">
+                    <p class="note-title">
+                      {link ? <a href={link}>{n.title}</a> : n.title}
+                      {!n.read && <span class="note-new">New</span>}
+                    </p>
+                    <p>{n.body}</p>
+                    <p class="muted">
+                      <time datetime={n.createdAt}>{formatDateTime(n.createdAt)}</time>
+                    </p>
+                  </div>
+                  {!n.read && (
+                    <form method="post" action="/notifications">
+                      <input type="hidden" name="intent" value="mark-read" />
+                      <input type="hidden" name="id" value={String(n.id)} />
+                      <input type="hidden" name="unread" value={String(unreadOnly)} />
+                      <input type="hidden" name="page" value={String(page)} />
+                      <button class="btn btn-secondary btn-small" type="submit">Mark as read</button>
+                    </form>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <nav class="pager" aria-label="Pagination">
+          {result.page > 0 ? <a href={pageHref(result.page - 1)} rel="prev">Previous</a> : <span class="muted">Previous</span>}
+          <span>Page {result.page + 1} of {Math.max(result.totalPages, 1)}</span>
+          {result.page + 1 < result.totalPages ? <a href={pageHref(result.page + 1)} rel="next">Next</a> : <span class="muted">Next</span>}
+        </nav>
+      </>
+    )
+  }
+</Layout>
+
+<script>
+  // The bell (in the nav) announces new notifications; offer a reload instead of changing the list under the reader.
+  document.addEventListener('itsm:notification', () => {
+    const notice = document.getElementById('new-notice');
+    if (notice) notice.hidden = false;
+  });
+</script>
+
+<style>
+  .notes { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.5rem; }
+  .note { display: flex; gap: 1rem; justify-content: space-between; align-items: flex-start; }
+  .note.unread { border-left: 4px solid var(--primary); }
+  .note p { margin: 0 0 0.25rem; }
+  .note-title { font-weight: 600; }
+  .note-new { margin-left: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--primary); }
+  .note form { margin: 0; flex: none; }
+</style>

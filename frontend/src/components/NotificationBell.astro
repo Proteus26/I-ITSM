@@ -1,0 +1,137 @@
+---
+// Bell with an unread badge, used by Nav. The count is loaded in the browser so a slow backend never delays a page.
+// It is polled every 30 s and, on top of that, new notifications arrive instantly over /api/notifications/stream.
+---
+
+<a class="bell" href="/notifications" aria-label="Notifications" data-bell>
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+    <path
+      fill="currentColor"
+      d="M12 2a6 6 0 0 0-6 6v3.6L4.3 15A1 1 0 0 0 5.2 16.5h13.6a1 1 0 0 0 .9-1.5L18 11.6V8a6 6 0 0 0-6-6Zm0 20a2.5 2.5 0 0 0 2.4-1.8H9.6A2.5 2.5 0 0 0 12 22Z"
+    ></path>
+  </svg>
+  <span class="count" data-bell-count hidden>0</span>
+</a>
+
+<script>
+  const link = document.querySelector<HTMLAnchorElement>('[data-bell]');
+  const badge = document.querySelector<HTMLElement>('[data-bell-count]');
+
+  if (link && badge) {
+    let stopped = false;
+
+    const show = (unread: number) => {
+      badge.textContent = unread > 99 ? '99+' : String(unread);
+      badge.hidden = unread === 0;
+      link.setAttribute('aria-label', unread === 0 ? 'Notifications' : `Notifications, ${unread} unread`);
+    };
+
+    // Pages without JS still have the bell as a plain link to /notifications; the badge is an enhancement.
+    const refresh = async () => {
+      try {
+        const res = await fetch('/api/notifications/unread-count', { credentials: 'same-origin' });
+        if (res.status === 401) {
+          stopped = true; // logged out: stop polling and streaming
+          return;
+        }
+        if (res.ok) {
+          const { unread } = await res.json();
+          if (Number.isInteger(unread) && unread >= 0) show(unread);
+        }
+      } catch {
+        // offline or backend down: keep the last value
+      }
+    };
+
+    const handle = (block: string) => {
+      let event = 'message';
+      let data = '';
+      for (const line of block.split('\n')) {
+        if (line.startsWith(':')) continue; // comment / heartbeat
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).trim();
+      }
+      if (event !== 'notification' || !data) return;
+      void refresh();
+      try {
+        document.dispatchEvent(new CustomEvent('itsm:notification', { detail: JSON.parse(data) }));
+      } catch {
+        // ignore a malformed event
+      }
+    };
+
+    // fetch() streaming: the response body is read as it arrives. Retries back off from 3 s up to a minute.
+    const listen = async () => {
+      let delay = 3000;
+      while (!stopped) {
+        const startedAt = Date.now();
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        try {
+          const res = await fetch('/api/notifications/stream', {
+            credentials: 'same-origin',
+            headers: { Accept: 'text/event-stream' },
+          });
+          if (res.status === 401 || res.status === 403) {
+            stopped = true;
+            return;
+          }
+          if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
+          reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
+            if (buffer.length > 1_000_000) throw new Error('event too large');
+            let end: number;
+            while ((end = buffer.indexOf('\n\n')) >= 0) {
+              handle(buffer.slice(0, end));
+              buffer = buffer.slice(end + 2);
+            }
+          }
+        } catch {
+          // fall through and retry
+        } finally {
+          await reader?.cancel().catch(() => undefined);
+        }
+        if (stopped) return;
+        if (Date.now() - startedAt > 10000) delay = 3000; // it was healthy for a while: start the backoff over
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        delay = Math.min(delay * 2, 60000);
+      }
+    };
+
+    void refresh();
+    const timer = setInterval(() => {
+      if (stopped) clearInterval(timer);
+      else void refresh();
+    }, 30000);
+    void listen();
+    // The notifications page tells the bell when the count changed there (mark as read).
+    document.addEventListener('itsm:unread-changed', () => void refresh());
+  }
+</script>
+
+<style>
+  .bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    color: var(--text);
+    padding: 0.25rem;
+  }
+  .count {
+    position: absolute;
+    top: -0.2rem;
+    right: -0.45rem;
+    min-width: 1.1rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: var(--danger, #b42318);
+    color: #fff;
+    font-size: 0.7rem;
+    line-height: 1.1rem;
+    text-align: center;
+  }
+</style>

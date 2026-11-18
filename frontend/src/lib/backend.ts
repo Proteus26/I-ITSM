@@ -16,6 +16,20 @@ import type {
   UserResponse,
 } from './types';
 import { ROLES } from './types';
+import type {
+  AuditEntry,
+  AuditQuery,
+  IncidentSearchQuery,
+  IncidentSearchResult,
+  MttrRow,
+  NotificationItem,
+  OverviewReport,
+  ServiceCount,
+  SlaCompliance,
+  TrendPoint,
+  WorkloadRow,
+} from './p4Types';
+import { toQueryString } from './p4';
 
 export const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -23,6 +37,12 @@ export const DEFAULT_TIMEOUT_MS = 5000;
 export function backendTimeoutMs(env: Record<string, string | undefined> = process.env): number {
   const n = Number(env.BACKEND_TIMEOUT_MS);
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
+}
+
+/** `?a=1&b=2` for the defined values of `params`, or an empty string. */
+function queryString(params: object): string {
+  const qs = toQueryString(params);
+  return qs ? `?${qs}` : '';
 }
 
 function invalidResponse(): ApiError {
@@ -149,6 +169,59 @@ export class BackendClient {
 
   resetPassword(id: number, newPassword: string): Promise<void> {
     return this.request('POST', `/api/admin/users/${id}/reset-password`, { newPassword });
+  }
+  // ---- P4: notifications, search, audit, reports ----
+
+  listNotifications(query: { unread?: boolean; page?: number; size?: number } = {}): Promise<PageResponse<NotificationItem>> {
+    return this.request('GET', `/api/notifications${queryString(query)}`);
+  }
+
+  unreadCount(): Promise<{ unread: number }> {
+    return this.request('GET', '/api/notifications/unread-count');
+  }
+
+  markNotificationRead(id: number): Promise<NotificationItem> {
+    return this.request('POST', `/api/notifications/${id}/read`);
+  }
+
+  markAllNotificationsRead(): Promise<{ updated: number }> {
+    return this.request('POST', '/api/notifications/read-all');
+  }
+
+  searchIncidents(query: IncidentSearchQuery = {}): Promise<PageResponse<IncidentSearchResult>> {
+    return this.request('GET', `/api/incidents/search${queryString(query)}`);
+  }
+
+  incidentHistory(id: number): Promise<AuditEntry[]> {
+    return this.request('GET', `/api/incidents/${id}/history`);
+  }
+
+  searchAudit(query: AuditQuery = {}): Promise<PageResponse<AuditEntry>> {
+    return this.request('GET', `/api/admin/audit${queryString(query)}`);
+  }
+
+  reportOverview(): Promise<OverviewReport> {
+    return this.request('GET', '/api/reports/overview');
+  }
+
+  reportWorkload(): Promise<WorkloadRow[]> {
+    return this.request('GET', '/api/reports/technician-workload');
+  }
+
+  reportByService(): Promise<ServiceCount[]> {
+    return this.request('GET', '/api/reports/by-service');
+  }
+
+  reportSlaCompliance(): Promise<SlaCompliance> {
+    return this.request('GET', '/api/reports/sla-compliance');
+  }
+
+  reportMttr(): Promise<MttrRow[]> {
+    return this.request('GET', '/api/reports/mttr');
+  }
+
+  reportTrend(days = 30): Promise<TrendPoint[]> {
+    return this.request('GET', `/api/reports/trend${queryString({ days })}`);
   }
 }
 
