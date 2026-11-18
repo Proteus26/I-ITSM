@@ -9,8 +9,16 @@ import com.itsm.incident.Priority
  * @property incidentId the incident, for logging and future strategies; not used for ranking today
  * @property categoryCode upper-case category code such as NETWORK; matched against technician skills
  * @property priority P1 is the most urgent; P1 and P2 prefer more senior technicians
+ * @property excludeTechnicianIds technicians who must not be chosen, for example the reporter (a technician reporting
+ *   their own incident) or the current assignee during an escalation reassignment. If every candidate is excluded
+ *   the result is null.
  */
-data class AssignmentRequest(val incidentId: Long?, val categoryCode: String?, val priority: Priority?)
+data class AssignmentRequest(
+    val incidentId: Long?,
+    val categoryCode: String?,
+    val priority: Priority?,
+    val excludeTechnicianIds: Set<Long> = emptySet(),
+)
 
 /**
  * A technician who may take one more incident: active, available and below their capacity.

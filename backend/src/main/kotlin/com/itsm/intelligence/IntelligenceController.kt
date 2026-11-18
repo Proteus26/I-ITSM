@@ -9,7 +9,10 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
-/** Smart hints for the incident form; open to every logged-in user. */
+/**
+ * Smart hints for the incident form; open to every logged-in user. Title longer than 200 characters is a 400;
+ * a description is truncated to its first 1000 characters rather than rejected.
+ */
 @RestController
 @RequestMapping("/api/intelligence")
 class IntelligenceController(
@@ -23,8 +26,8 @@ class IntelligenceController(
         @RequestParam title: String,
         @RequestParam(defaultValue = "") description: String,
     ): ResponseEntity<CategorySuggestion> {
-        validate(title, description)
-        return suggester.suggest(title, description)?.let { ResponseEntity.ok(it) } ?: ResponseEntity.noContent().build()
+        validateTitle(title)
+        return suggester.suggest(title, clip(description))?.let { ResponseEntity.ok(it) } ?: ResponseEntity.noContent().build()
     }
 
     /** Similar open incidents the caller may see; [excludeId] hides the incident being edited. */
@@ -34,12 +37,19 @@ class IntelligenceController(
         @RequestParam(defaultValue = "") description: String,
         @RequestParam(required = false) excludeId: Long?,
     ): List<SimilarIncident> {
-        validate(title, description)
-        return detector.findSimilar(title, description, currentUser.get(), excludeId)
+        validateTitle(title)
+        return detector.findSimilar(title, clip(description), currentUser.get(), excludeId)
     }
 
-    private fun validate(title: String, description: String) {
+    private fun validateTitle(title: String) {
         domainRequire(title.length <= Incident.MAX_TITLE) { "Title must be at most ${Incident.MAX_TITLE} characters" }
-        domainRequire(description.length <= Incident.MAX_TEXT) { "Description must be at most ${Incident.MAX_TEXT} characters" }
+    }
+
+    /** GET query strings are limited (about 8 KB request line), so only the first [MAX_DESCRIPTION_USED] characters count. */
+    private fun clip(description: String) = description.take(MAX_DESCRIPTION_USED)
+
+    companion object {
+        /** Characters of the description that are used; the rest is ignored, not rejected. The frontend sends at most 500. */
+        const val MAX_DESCRIPTION_USED = 1000
     }
 }

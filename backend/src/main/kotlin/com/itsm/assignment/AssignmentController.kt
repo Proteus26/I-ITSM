@@ -1,5 +1,6 @@
 package com.itsm.assignment
 
+import com.itsm.common.exception.DomainValidationException
 import com.itsm.incident.Priority
 import com.itsm.user.TechnicianRepository
 import org.springframework.security.access.prepost.PreAuthorize
@@ -21,10 +22,17 @@ class AssignmentController(private val assignment: AssignmentService, private va
     @GetMapping("/recommendations")
     fun recommendations(
         @RequestParam(required = false) category: String?,
-        @RequestParam(required = false) priority: Priority?,
+        @RequestParam(required = false) priority: String?,
     ): List<RecommendationResponse> {
-        val results = assignment.recommend(AssignmentRequest(null, category?.trim()?.uppercase()?.ifEmpty { null }, priority))
+        val results = assignment.recommend(AssignmentRequest(null, category?.trim()?.uppercase()?.ifEmpty { null }, parsePriority(priority)))
         val names = technicians.findAllById(results.map { it.technicianId }).associate { it.id to it.fullName }
         return results.map { RecommendationResponse(it.technicianId, names[it.technicianId] ?: "Unknown", it.strategy, it.reason) }
+    }
+
+    /** Case-insensitive ("p1" is P1); blank means none; anything else is a 400. */
+    private fun parsePriority(raw: String?): Priority? {
+        val value = raw?.trim()?.uppercase()?.ifEmpty { null } ?: return null
+        return Priority.entries.firstOrNull { it.name == value }
+            ?: throw DomainValidationException("Unknown priority '$raw'; expected one of ${Priority.entries.joinToString(", ")}")
     }
 }
