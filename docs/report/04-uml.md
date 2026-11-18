@@ -474,6 +474,9 @@ classDiagram
     class PropertyStrategyKeySource {
         itsm.assignment.strategy
     }
+    class SettingsStrategyKeySource {
+        system_settings assignment.strategy
+    }
     class AssignmentService {
         +availableStrategies Set
         +assign(request) AssignmentResult
@@ -504,6 +507,8 @@ classDiagram
     AssignmentStrategy <|.. SkillLeastLoadedStrategy
     AssignmentStrategy <|.. RoundRobinStrategy
     StrategyKeySource <|.. PropertyStrategyKeySource
+    StrategyKeySource <|.. SettingsStrategyKeySource
+    SettingsStrategyKeySource --> PropertyStrategyKeySource : fallback
     AssignmentStrategySelector o-- "*" AssignmentStrategy
     AssignmentStrategySelector --> StrategyKeySource
     AssignmentService --> AssignmentStrategySelector
@@ -535,9 +540,8 @@ classDiagram
     TokenSimilarityDuplicateDetector ..> TextSimilarity
 ```
 
-The setting `assignment.strategy` is stored in `system_settings` and validated, but `AssignmentStrategySelector` reads the
-key only through `PropertyStrategyKeySource` (`itsm.assignment.strategy`). The `StrategyKeySource` interface is the planned
-seam for reading the setting instead (see section 5.3).
+`AssignmentStrategySelector` reads the key through `SettingsStrategyKeySource`, which uses the `assignment.strategy` setting
+in `system_settings` and falls back to `PropertyStrategyKeySource` (`itsm.assignment.strategy`) (see section 5.3).
 
 Incident correlation (`IncidentCorrelator`, a pure class grouping `CorrelationCandidate`s into `IncidentCluster`s) and
 `IncidentCorrelationService` (loads open incidents, filters by what the viewer may see) are described in section 5.11.
