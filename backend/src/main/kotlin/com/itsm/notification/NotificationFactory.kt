@@ -36,6 +36,7 @@ class NotificationFactory(
             is SlaBreached -> "SLA breached for $n" to "\"$t\" breached its SLA (${event.breachType})."
             is IncidentEscalated -> "$n escalated" to "\"$t\" was escalated to ${event.level}."
             is IncidentResolved -> "$n resolved" to (event.summary ?: "Please check that the problem is fixed.")
+            is IncidentUpdated -> "$n updated" to "Changed: ${event.changedFields.joinToString(", ")}."
             is IncidentClosed -> "$n closed" to "\"$t\" has been closed."
         }
 

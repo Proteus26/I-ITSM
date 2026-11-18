@@ -40,8 +40,8 @@ class IncidentPipelineTest {
     @Test
     fun `a new incident offers the reporter cancel and the admin classify`() {
         val i = incident()
-        assertEquals(listOf(IncidentAction.CANCEL), i.actionsFor(Actor(1, Role.EMPLOYEE)))
-        assertEquals(setOf(IncidentAction.CLASSIFY, IncidentAction.CANCEL), i.actionsFor(Actor(9, Role.ADMIN)).toSet())
+        assertEquals(listOf(IncidentAction.CANCEL, IncidentAction.EDIT), i.actionsFor(Actor(1, Role.EMPLOYEE)))
+        assertEquals(setOf(IncidentAction.CLASSIFY, IncidentAction.CANCEL, IncidentAction.EDIT), i.actionsFor(Actor(9, Role.ADMIN)).toSet())
         assertEquals(emptyList(), i.actionsFor(Actor(2, Role.EMPLOYEE)))
         assertEquals(listOf(NoteType.COMMENT), i.noteTypesFor(Actor(1, Role.EMPLOYEE)))
         assertEquals(listOf(NoteType.INVESTIGATION, NoteType.COMMENT), i.noteTypesFor(Actor(9, Role.ADMIN)))

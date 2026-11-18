@@ -133,6 +133,10 @@ internal object AuditDescriber {
             "INCIDENT_RESOLVED", "$inc resolved by $actor",
             details = mapOf("summary" to e.summary?.take(500)),
         )
+        is IncidentUpdated -> AuditDescription(
+            "INCIDENT_UPDATED", "$inc updated by $actor (${e.changedFields.joinToString(", ")})",
+            details = mapOf("changedFields" to e.changedFields),
+        )
         is IncidentClosed -> AuditDescription(
             "INCIDENT_CLOSED", "$inc closed by $actor",
         )

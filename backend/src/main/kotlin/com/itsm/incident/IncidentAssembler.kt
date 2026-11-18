@@ -40,6 +40,7 @@ class IncidentAssembler(
             feedbackRating = incident.feedbackRating, feedbackComment = incident.feedbackComment,
             updatedAt = incident.updatedAt, version = incident.version,
             actions = incident.actionsFor(viewer), noteTypes = incident.noteTypesFor(viewer),
+            editableFields = incident.editableFieldsFor(viewer).sortedBy { it.ordinal }.map { it.json },
         )
     }
 

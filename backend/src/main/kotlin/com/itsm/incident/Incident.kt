@@ -305,6 +305,63 @@ class Incident(
     fun canGiveFeedback(actor: Actor): Boolean =
         isActing(actor, Party.REPORTER) && status in FEEDBACK_STATUSES && feedbackRating == null
 
+    /**
+     * The fields [actor] may edit right now. The reporter may change everything while the work has not started
+     * (NEW, CLASSIFIED, ASSIGNED); an administrator may change everything until the incident is resolved; the
+     * assignee may correct impact, urgency, affected users and service while it is active (not the reporter's
+     * own words). Nothing can be edited once the incident is RESOLVED or later.
+     */
+    fun editableFieldsFor(actor: Actor): Set<EditField> {
+        if (status !in IncidentStatus.OPEN) return emptySet()
+        val all = EditField.entries.toSet()
+        return buildSet {
+            if (actor.isAdmin) addAll(all)
+            if (isActing(actor, Party.REPORTER) && status in REPORTER_EDITABLE_STATUSES) addAll(all)
+            if (isActing(actor, Party.ASSIGNEE) && status in IncidentStatus.ACTIVE) addAll(ASSIGNEE_EDITABLE_FIELDS)
+        }
+    }
+
+    /**
+     * Applies [edit] on behalf of [actor] and returns the fields that really changed (a value equal to the current
+     * one is not a change; nothing is touched when nothing changed). Validation is the same as when reporting.
+     * Throws [UnauthorizedOperationException] (403) for a field the actor may not edit, [InvalidIncidentOperationException]
+     * (409) when the incident is no longer editable, and a 400 for an empty edit or an invalid value.
+     * The caller must check that a new service exists and is active, and recalculate priority and SLA when
+     * [EditResult.affectsPriority] is true.
+     */
+    fun edit(edit: IncidentEdit, actor: Actor, now: Instant): EditResult {
+        val requested = edit.requestedFields()
+        domainRequire(requested.isNotEmpty()) { "Nothing to change: give at least one field" }
+        domainRequire(!(edit.clearService && edit.serviceId != null)) { "Give either serviceId or clearService, not both" }
+        val involved = isActing(actor, Party.REPORTER) || isActing(actor, Party.ASSIGNEE) || actor.isAdmin
+        if (!involved) throw UnauthorizedOperationException("You are not allowed to edit this incident")
+        if (status !in IncidentStatus.OPEN) throw InvalidIncidentOperationException("An incident that is $status can no longer be edited")
+        val allowed = editableFieldsFor(actor)
+        if (allowed.isEmpty()) throw UnauthorizedOperationException("You can no longer edit this incident because work on it has started")
+        val denied = requested - allowed
+        if (denied.isNotEmpty()) {
+            throw UnauthorizedOperationException("You are not allowed to change: ${denied.joinToString(", ") { it.json }}")
+        }
+
+        // Validate everything first so a bad value never leaves a half-applied edit.
+        val newTitle = edit.title?.let { requireText(it, "Title", MAX_TITLE) }
+        val newDescription = edit.description?.let { requireText(it, "Description", MAX_TEXT) }
+        val newAffected = edit.affectedUsers?.let { requireAffectedUsers(it) }
+        val newServiceId = if (edit.clearService) null else edit.serviceId
+        domainRequire(newServiceId == null || newServiceId > 0) { "Service id must be positive" }
+
+        val changed = buildList {
+            if (newTitle != null && newTitle != title) { title = newTitle; add(EditField.TITLE) }
+            if (newDescription != null && newDescription != description) { description = newDescription; add(EditField.DESCRIPTION) }
+            if (edit.impact != null && edit.impact != impact) { impact = edit.impact; add(EditField.IMPACT) }
+            if (edit.urgency != null && edit.urgency != urgency) { urgency = edit.urgency; add(EditField.URGENCY) }
+            if (newAffected != null && newAffected != affectedUsers) { affectedUsers = newAffected; add(EditField.AFFECTED_USERS) }
+            if (EditField.SERVICE in requested && newServiceId != serviceId) { serviceId = newServiceId; add(EditField.SERVICE) }
+        }
+        if (changed.isNotEmpty()) touch(now)
+        return EditResult(changed)
+    }
+
     private fun touch(now: Instant) {
         updatedAt = now.truncatedTo(ChronoUnit.MICROS)
     }
@@ -318,6 +375,8 @@ class Incident(
         private val REASSIGNABLE_STATUSES = setOf(
             IncidentStatus.ASSIGNED, IncidentStatus.ACKNOWLEDGED, IncidentStatus.IN_PROGRESS, IncidentStatus.PENDING_INFO,
         )
+        private val REPORTER_EDITABLE_STATUSES = setOf(IncidentStatus.NEW, IncidentStatus.CLASSIFIED, IncidentStatus.ASSIGNED)
+        private val ASSIGNEE_EDITABLE_FIELDS = setOf(EditField.IMPACT, EditField.URGENCY, EditField.AFFECTED_USERS, EditField.SERVICE)
         private val FEEDBACK_STATUSES = setOf(IncidentStatus.RESOLVED, IncidentStatus.VERIFIED, IncidentStatus.CLOSED)
 
         private fun requireText(value: String, field: String, max: Int): String {

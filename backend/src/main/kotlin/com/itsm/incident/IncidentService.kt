@@ -9,11 +9,17 @@ import com.itsm.common.exception.domainRequire
 import com.itsm.events.IncidentAssigned
 import com.itsm.events.IncidentClosed
 import com.itsm.events.IncidentReported
+import com.itsm.events.IncidentUpdated
+import com.itsm.events.PriorityChanged
 import com.itsm.events.IncidentResolved
 import com.itsm.events.InfoRequested
 import com.itsm.events.NoteAdded
 import com.itsm.events.StatusChanged
+import com.itsm.priority.PriorityInput
+import com.itsm.priority.PriorityService
 import com.itsm.service.ItServiceRepository
+import com.itsm.service.ServiceCatalog
+import com.itsm.sla.SlaPolicyResolver
 import com.itsm.sla.SlaService
 import com.itsm.user.PageResponse
 import com.itsm.user.Role
@@ -25,6 +31,8 @@ import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
+import java.time.Duration
+import java.time.Instant
 
 /**
  * The use cases of the incident module. Each public method is one transaction: it loads the incident, checks that
@@ -47,6 +55,9 @@ class IncidentService(
     private val assembler: IncidentAssembler,
     private val events: ApplicationEventPublisher,
     private val sla: SlaService,
+    private val priorities: PriorityService,
+    private val catalog: ServiceCatalog,
+    private val slaPolicies: SlaPolicyResolver,
     private val clock: Clock,
 ) {
     // ---- reporting -------------------------------------------------------------------------------------------------
@@ -196,6 +207,61 @@ class IncidentService(
     /** One rating from the reporter once the incident is resolved. */
     fun feedback(id: Long, viewer: AuthenticatedUser, request: FeedbackRequest): IncidentDetail = act(id, viewer) { i, actor ->
         i.submitFeedback(request.rating, request.comment, actor, clock.instant())
+    }
+
+    // ---- editing ---------------------------------------------------------------------------------------------------
+
+    /**
+     * Changes the given fields of an incident (who may change what: [Incident.editableFieldsFor]). When impact,
+     * urgency, affected users or service really changed, the priority is recalculated with the same strategy as
+     * when reporting ([PriorityChanged] is published if it differs) and the SLA deadlines are recomputed. A new
+     * service must exist and be active. An edit that changes nothing publishes nothing.
+     *
+     * The SLA clock keeps its original start: it is read back from the stored resolution deadline minus the policy
+     * length that was in force (so a reopened incident, whose deadlines were re-armed at the reopen, keeps counting
+     * from there). If that cannot be determined sensibly (no deadline, or a start outside createdAt..now, for
+     * example after an administrator changed the policy) the incident's createdAt is used, as when it was reported.
+     */
+    fun update(id: Long, viewer: AuthenticatedUser, request: UpdateIncidentRequest): IncidentDetail {
+        val incident = loadVisible(id, viewer)
+        request.serviceId?.let { sid ->
+            val service = services.findById(sid).orElse(null)
+            domainRequire(service != null && service.active) { "Service $sid does not exist or is not active" }
+        }
+        val actor = Actor.of(viewer)
+        val now = clock.instant()
+        val previousServiceId = incident.serviceId
+        val previousPriority = incident.priority
+        val previousDue = incident.resolutionDueAt
+        val result = incident.edit(request.toEdit(), actor, now)
+        if (result.isEmpty) return finish(incident, viewer)
+
+        if (result.affectsPriority) {
+            val priorityResult = priorities.calculate(
+                PriorityInput(
+                    impact = incident.impact.weight, urgency = incident.urgency.weight,
+                    serviceCriticality = catalog.criticalityOf(incident.serviceId),
+                    affectedUsers = incident.affectedUsers, categoryCode = incident.categoryCode,
+                ),
+            )
+            incident.applyPriority(priorityResult.priority, priorityResult.score, now, priorityResult.explanation)
+            val from = slaStart(incident, previousServiceId, previousPriority, previousDue, now)
+            val deadlines = sla.computeDeadlines(incident.serviceId, priorityResult.priority, from)
+            incident.applySla(deadlines.responseDueAt, deadlines.resolutionDueAt, now)
+            if (previousPriority != priorityResult.priority) {
+                events.publishEvent(PriorityChanged(requireNotNull(incident.id), viewer.id, previousPriority, priorityResult.priority, priorityResult.explanation))
+            }
+        }
+        events.publishEvent(IncidentUpdated(requireNotNull(incident.id), viewer.id, result.names))
+        return finish(incident, viewer)
+    }
+
+    /** Where the SLA clock started; see [update]. */
+    private fun slaStart(incident: Incident, serviceId: Long?, priority: Priority?, due: Instant?, now: Instant): Instant {
+        if (due == null || priority == null) return incident.createdAt
+        val minutes = runCatching { slaPolicies.resolve(serviceId, priority).resolutionMinutes }.getOrNull() ?: return incident.createdAt
+        val start = due.minus(Duration.ofMinutes(minutes.toLong()))
+        return if (start.isAfter(incident.createdAt) && !start.isAfter(now)) start else incident.createdAt
     }
 
     // ---- administration --------------------------------------------------------------------------------------------

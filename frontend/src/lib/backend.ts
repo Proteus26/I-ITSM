@@ -54,8 +54,13 @@ import type {
   SettingItem,
   SimilarIncident,
   SimilarQuery,
+  IncidentCluster,
+  RelatedIncidents,
+  SlaRiskReport,
   TechnicianRecommendation,
+  TechnicianWorkload,
   UpdateCategoryRequest,
+  UpdateIncidentRequest,
   UpdateServiceRequest,
 } from './incidentTypes';
 
@@ -268,6 +273,36 @@ export class BackendClient {
 
   getIncident(id: number): Promise<IncidentDetail> {
     return this.request('GET', `/api/incidents/${id}`);
+  }
+
+  /** Partial update (PATCH): only the given fields change. */
+  updateIncident(id: number, req: UpdateIncidentRequest): Promise<IncidentDetail> {
+    return this.request('PATCH', `/api/incidents/${id}`, req);
+  }
+
+  /** The signed-in technician's workload (403 for other roles). */
+  myWorkload(): Promise<TechnicianWorkload> {
+    return this.request('GET', '/api/incidents/workload');
+  }
+
+  /** Technicians only: (un)available for automatic assignment. */
+  setAvailability(available: boolean): Promise<{ available: boolean }> {
+    return this.request('PATCH', '/api/me/availability', { available });
+  }
+
+  /** The cluster the incident belongs to, or undefined (204) when it is in none. */
+  relatedIncidents(id: number): Promise<RelatedIncidents | undefined> {
+    return this.request('GET', `/api/incidents/${id}/related`);
+  }
+
+  /** Admin: open incidents that breached their SLA or are predicted to. */
+  slaAtRisk(): Promise<SlaRiskReport> {
+    return this.request('GET', '/api/admin/sla/at-risk');
+  }
+
+  /** Admin: clusters of open incidents that probably share a cause. */
+  correlations(): Promise<IncidentCluster[]> {
+    return this.request('GET', '/api/admin/correlations');
   }
 
   incidentNotes(id: number): Promise<IncidentNote[]> {
