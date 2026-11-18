@@ -18,6 +18,8 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   { prefix: '/admin', roles: ['ADMIN'] },
   { prefix: '/dashboard' },
   { prefix: '/account' },
+  { prefix: '/notifications' },
+  { prefix: '/search' },
   // { prefix: '/incidents' },
   // { prefix: '/technician', roles: ['TECHNICIAN'] },
 ];

@@ -1,6 +1,7 @@
 ---
 import type { UserResponse } from '../lib/types';
 import RoleBadge from './RoleBadge.astro';
+import NotificationBell from './NotificationBell.astro';
 
 interface Props {
   user: UserResponse | null;
@@ -12,8 +13,15 @@ const path = Astro.url.pathname;
 const links = user
   ? [
       { href: '/dashboard', label: 'Dashboard' },
+      { href: '/search', label: 'Search' },
       { href: '/account', label: 'Account' },
-      ...(user.role === 'ADMIN' ? [{ href: '/admin/users', label: 'Users' }] : []),
+      ...(user.role === 'ADMIN'
+        ? [
+            { href: '/admin/users', label: 'Users' },
+            { href: '/admin/reports', label: 'Reports' },
+            { href: '/admin/audit', label: 'Audit log' },
+          ]
+        : []),
     ]
   : [
       { href: '/login', label: 'Login' },
@@ -33,6 +41,7 @@ const links = user
   {
     user && (
       <div class="who">
+        <NotificationBell />
         <span class="who-name">{user.fullName}</span>
         <RoleBadge role={user.role} />
         <form method="post" action="/logout">
