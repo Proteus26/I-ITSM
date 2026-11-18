@@ -1,3 +1,7 @@
 app:
   auth:
     jwt-secret: test-only-secret-0123456789-abcdefghijklmnop
+itsm:
+  sla:
+    # Tests call SlaMonitor.runOnce(now) themselves.
+    monitor-enabled: false
