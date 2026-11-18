@@ -10,7 +10,7 @@ lives, why it was chosen and what it buys.
 | 2 | Strategy (priority) | `PriorityStrategy`, `WeightedScoreStrategy`, `MatrixStrategy`, `PriorityService` (`priority/`) | one hard-coded formula |
 | 3 | Strategy (assignment) | `AssignmentStrategy`, `SkillLeastLoadedStrategy`, `RoundRobinStrategy`, `AssignmentStrategySelector` (`assignment/`) | one hard-coded assignment rule |
 | 4 | Template Method | `IncidentProcessingPipeline` / `StandardIncidentPipeline` (`incident/IncidentPipeline.kt`) | copy-pasted "report" and "classify" sequences |
-| 5 | Chain of Responsibility | `EscalationHandler`, `AdminEscalationHandler`, `ReassignEscalationHandler`, `EscalationChain` (`sla/escalation/Escalation.kt`) | an if/else escalation block in the monitor |
+| 5 | Chain of Responsibility | `EscalationHandler`, `TeamLeadEscalationHandler`, `AdminEscalationHandler`, `EscalationChain` (`sla/escalation/Escalation.kt`) | an if/else escalation block in the monitor |
 | 6 | Observer | Spring events: `IncidentEvent`, `AuditListener`, `NotificationDispatcher` (`events/`, `audit/`, `notification/`) | direct calls from incident code to audit and notification code |
 | 7 | Adapter | `EmailGateway`, `SmtpEmailGateway`, `LoggingEmailGateway` (`notification/channel/EmailGateway.kt`) | code that depends on one mail library |
 | 8 | Factory | `UserFactory` (`user/UserFactory.kt`), `NotificationFactory` (`notification/NotificationFactory.kt`) | scattered `if (role == ...)` construction and message building |
@@ -165,13 +165,12 @@ winner, giving up to three ranked suggestions without disturbing round-robin's p
 **Known limitation.** Capacity is a soft limit: workloads are read without locking, so two simultaneous assignments
 can both pick a technician with one slot left (documented in `AssignmentService`).
 
-**Important for the report's honesty.** The admin setting `assignment.strategy` is stored in `system_settings` and
-validated by `SettingsAdminService`, but `AssignmentStrategySelector` currently reads the key from
-`PropertyStrategyKeySource` (the `ASSIGNMENT_STRATEGY` environment variable) only. The code even carries a
-`TODO(P5/P3)` for wiring the setting in. Changing the strategy on the settings page therefore does not yet change
-assignment behaviour; the environment variable does.
-<!-- TODO(verify after merge): if the lead (or a parallel track) wires StrategyKeySource to system_settings, remove
-the paragraph above and describe the setting as effective. -->
+**Known limitation (honest note).** The admin setting `assignment.strategy` is stored in `system_settings` and validated
+by `SettingsAdminService`, but `AssignmentStrategySelector` still reads the key from `PropertyStrategyKeySource` (the
+`ASSIGNMENT_STRATEGY` environment variable). The code carries a `TODO(P5/P3)` for reading the setting through another
+`StrategyKeySource`. Changing the strategy on the settings page therefore does not yet change assignment; the
+environment variable does. (The `priority.strategy` setting, in contrast, is read by `PriorityService` on every call
+and takes effect immediately.)
 
 ## 5.4 Template Method: the report pipeline
 
@@ -188,18 +187,28 @@ administrator. `IncidentPipelineTest` proves the order with a recording subclass
 
 ## 5.5 Chain of Responsibility: SLA escalation
 
-**Where.** `abstract class EscalationHandler` with `next`, `handle(context)`, `canHandle`, `escalate`.
-`AdminEscalationHandler` (`@Order(1)`: resolution breach of P1 or P2 publishes `IncidentEscalated(level="ADMIN")`)
-and `ReassignEscalationHandler` (`@Order(2)`: response breach of an unacknowledged incident publishes
-`IncidentEscalated(level="REASSIGN_REQUESTED")`). `EscalationChain` receives the handler list from Spring (already
-sorted by `@Order`) and links it with `reduceRightOrNull`. `SlaMonitor` calls `escalation.escalate(...)` on each breach.
+**Where.** `abstract class EscalationHandler` has a `next` link, a final `handle(context)` (`tryHandle(context) || next?.handle(context)`)
+and the protected abstract `tryHandle`. Two handlers, ordered with `@Order`:
 
-**Why.** Each escalation rule is independent and optional; the monitor should not know them. A handler either handles
-the breach or passes it on, and a new level is a new `@Component` with an `@Order`. Handlers only publish events, so
-who reacts (notifications, a future reassigner) stays decoupled.
+1. `TeamLeadEscalationHandler` (`@Order(1)`). For a **response breach** of an incident nobody acknowledged, it asks a
+   `TeamLeadSource` (`JpaTeamLeadSource`: active, available team lead, not the reporter or current assignee, category
+   skill first, then lowest load ratio) and **reassigns** the incident to that team lead as `Actor.SYSTEM`. It publishes
+   `IncidentEscalated` (level `TEAM_LEAD`, with `escalatedToId`), `IncidentAssigned` (strategy `escalation`) and, if the status
+   changed, `StatusChanged`. With no team lead it passes the breach on.
+2. `AdminEscalationHandler` (`@Order(2)`, the last link). It publishes `IncidentEscalated` (level `ADMIN`) for a P1 or P2
+   **resolution breach**, and for an unacknowledged response breach that no team lead could take. P3 and P4 resolution
+   breaches are not escalated.
 
-<!-- TODO(verify after merge): the parallel track replacing/extending this with a Technician -> Team Lead -> Admin
-chain should update this section (handlers, order, whether incidents are actually reassigned). -->
+`EscalationChain` receives the handler list from Spring (already sorted by `@Order`) and links it with
+`reduceRightOrNull`. `SlaMonitor` calls `escalation.escalate(EscalationContext(...))` once for each breach it records, so the chain
+is not repeated for the same incident and breach type.
+
+**Why.** Each escalation rule is independent and optional; the monitor should not know them. A handler either deals
+with the breach or passes it on, so the order "Technician, then Team Lead, then Administrator" is data (the `@Order`
+values), and a new level is a new `@Component`. Reassignment goes through `Incident.assign`, so the state rules and the
+event stream stay the same as for any other assignment, and audit and notifications follow without extra code.
+`EscalationChainTest` checks the rules without a database and `EscalationIntegrationTest` checks that an
+unacknowledged breach is reassigned and recorded once.
 
 ## 5.6 Observer: events, audit and notifications
 
@@ -338,6 +347,9 @@ skills and candidate exclusion, and a list of beans sorted by `@Order` for the e
 | Explainable priority | `PriorityResult.explanation` | Section 5.2 |
 | Automated SLA monitoring and escalation | `SlaMonitor`, `EscalationChain` | Section 3.5 and 5.5 |
 
-<!-- TODO(verify after merge): incident correlation (grouping many similar incidents) and SLA risk detection are
-parallel tracks; add rows here and describe their algorithms once merged. Today duplicates are only hints and are
-never linked or merged. -->
+Two more features were added after the first version:
+
+| Feature | Class | Algorithm |
+|---|---|---|
+| Incident correlation (possible major incidents) | `IncidentCorrelator`, `IncidentCorrelationService` | Open incidents created inside a sliding window (default 2 hours) are grouped by service, or by category when they have no service (service wins; one incident is in at most one cluster). A group of at least 3 (default) is reported as a cluster, largest first, then newest. Pure and deterministic, so `IncidentCorrelatorTest` needs no database. Shown to administrators (`GET /api/admin/correlations`) and as related incidents on the incident page (`GET /api/incidents/{id}/related`, only incidents the viewer may see). Duplicates stay hints; nothing is linked or merged. |
+| SLA risk detection (prediction) | `SlaRiskDetector`, `SlaRiskService` | An open incident is `BREACHED` when a still-active deadline has passed, and `AT_RISK` when none has but a rule fires: a window has used the policy's warning percentage; not acknowledged with less than 25 percent of the response time left; nobody assigned and 50 percent of the response time gone; or the assignee is over capacity and 50 percent of the resolution time is gone. Each result carries a readable `riskReason`. `GET /api/admin/sla/at-risk` feeds the admin SLA monitor page, and the technician workload view marks each incident OVERDUE, AT_RISK or ON_TRACK with the same detector. |

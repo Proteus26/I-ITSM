@@ -1,7 +1,7 @@
 # 9. Testing
 
 The brief asks for at least 15 documented test cases covering normal operations, boundary conditions, invalid
-inputs, exceptions, authorisation and business rules. This chapter documents **77 test cases** (TC-01 to TC-77). Every
+inputs, exceptions, authorisation and business rules. This chapter documents **90 test cases** (TC-01 to TC-90). Every
 case names the automated test that implements it; each test class and method name below exists in the repository
 (`backend/src/test/kotlin/com/itsm/...` and `frontend/test/*.test.ts`). The requirement IDs refer to
 [02-requirements.md](02-requirements.md).
@@ -13,9 +13,9 @@ authorisation, **R** business rule.
 
 | Level | Tool | What it covers | Where |
 |---|---|---|---|
-| Domain unit tests | JUnit 5, AssertJ, no Spring | `Incident` and `IncidentState`, user entities and factory, strategies, text similarity, throttle, escalation chain, pipeline order | `IncidentLifecycleTest`, `UserDomainTest`, `PriorityStrategyTest`, `AssignmentStrategiesTest`, `TextSimilarityTest`, `LoginAttemptTrackerTest`, `EscalationChainTest`, `IncidentPipelineTest`, `SlaServiceTest`, `JwtTokenServiceTest` |
+| Domain unit tests | JUnit 5, AssertJ, no Spring | `Incident` and `IncidentState`, user entities and factory, strategies, text similarity, throttle, escalation chain, pipeline order | `IncidentLifecycleTest`, `UserDomainTest`, `PriorityStrategyTest`, `AssignmentStrategiesTest`, `TextSimilarityTest`, `LoginAttemptTrackerTest`, `EscalationChainTest`, `IncidentPipelineTest`, `SlaServiceTest`, `JwtTokenServiceTest`, `IncidentEditTest`, `SlaRiskDetectorTest`, `IncidentCorrelatorTest` |
 | Repository and database tests | `@DataJpaTest`-style with Testcontainers PostgreSQL | mapping, constraints, polymorphic loading | `UserRepositoryTest` |
-| Integration (API) tests | Spring Boot Test, MockMvc, real PostgreSQL (Testcontainers), real Flyway migrations | endpoints, security rules, events, audit rows, notifications, SLA monitor | `P2ApiTest`, `P4ApiTest`, `P5ApiTest`, `AuthApiTest`, `AdminUserApiTest`, `SessionRevocationTest`, `LoginThrottleApiTest`, `NotificationFlowTest`, `AuditListenerTest`, `SlaMonitorTest`, `IncidentSearchTest`, `ReportServiceTest`, `CatalogAndSettingsApiTest` |
+| Integration (API) tests | Spring Boot Test, MockMvc, real PostgreSQL (Testcontainers), real Flyway migrations | endpoints, security rules, events, audit rows, notifications, SLA monitor | `P2ApiTest`, `P4ApiTest`, `P5ApiTest`, `AuthApiTest`, `AdminUserApiTest`, `SessionRevocationTest`, `LoginThrottleApiTest`, `NotificationFlowTest`, `AuditListenerTest`, `SlaMonitorTest`, `IncidentSearchTest`, `ReportServiceTest`, `CatalogAndSettingsApiTest`, `SlaPolicyAdminApiTest`, `IncidentOpsApiTest`, `EscalationIntegrationTest`, `DemoDataSeederTest` |
 | Frontend unit tests | Vitest | pure logic: route rules, middleware gate, proxy (paths, headers, limits), CSRF check, cookies, error parsing, form helpers, typed client | `frontend/test/*.test.ts` |
 | Static checks | `astro check` (TypeScript) | types across pages and components | CI step `pnpm check` |
 | Build and CI | GitHub Actions | everything above on every push and pull request | `.github/workflows/ci.yml` |
@@ -70,12 +70,12 @@ injected (`Clock`, `now` parameters), so SLA tests move a clock instead of sleep
 | TC-28 | N, R | FR-52 | SLA deadlines from the default policy | compute deadlines for P1 to P4 | response and resolution minutes as in BR-03 | `SlaMonitorTest` `default policy deadlines`; `SlaServiceTest` `uses the default policy when the service has none` | Automated |
 | TC-29 | R | FR-33, FR-52 | Service-specific policy wins | service has its own P1 policy | its minutes are used instead of the default | `SlaServiceTest` `prefers the service specific policy`; `SlaMonitorTest` `a service specific policy overrides the default` | Automated |
 | TC-30 | E | FR-52 | Missing SLA configuration | no default policy for a priority | `SlaNotConfiguredException`; null service uses the default | `SlaServiceTest` `a null service uses the default and a missing default is an error` | Automated |
-| TC-31 | N, B | FR-53 | Warning then breach, each once | P3 incident (60 / 480 min); run monitor at 30, 50, 55, 61, 62 minutes | nothing at 50 %; one WARNING at 83 %; none at 55; one RESPONSE_BREACH at 61; none again at 62; events published once; escalation `REASSIGN_REQUESTED`; one `SLA_BREACHED` audit row | `SlaMonitorTest` `warning then breach are each recorded once and published` | Automated |
+| TC-31 | N, B | FR-53 | Warning then breach, each once | P3 incident (60 / 480 min); run monitor at 30, 50, 55, 61, 62 minutes | nothing at 50 %; one WARNING at 83 %; none at 55; one RESPONSE_BREACH at 61; none again at 62; events published once; the chain escalates to ADMIN (no team lead exists); one `SLA_BREACHED` audit row | `SlaMonitorTest` `warning then breach are each recorded once and published` | Automated |
 | TC-32 | R | FR-53, FR-54 | Acknowledged incident counts only the resolution deadline; P1 breach escalates | P1 acknowledged; run at 10, 24, 31 minutes | no event at 10; WARNING at 80 %; RESOLUTION_BREACH at 31; escalation level `ADMIN` | `SlaMonitorTest` `an acknowledged incident only counts down the resolution deadline and P1 resolution breach escalates to admin` | Automated |
 | TC-33 | R | FR-53 | Resolved incidents are not monitored | resolved P1; run monitor far in the future | 0 events | `SlaMonitorTest` `a resolved incident is not monitored` | Automated |
 | TC-34 | E | NFR-11 | One bad incident does not stop others | incident without a policy next to a breaching one | breach still recorded for the other incident | `SlaMonitorTest` `an incident without a policy does not stop another incident's breach from being recorded` | Automated |
 | TC-35 | B | FR-53 | Late-started windows measured correctly | deadlines counted from a later start | no early warning | `SlaMonitorTest` `deadlines counted from a later start give no early warning` | Automated |
-| TC-36 | R | FR-54 | Escalation chain rules | resolution breach of P1/P2; of P3; unacknowledged response breach | ADMIN escalation; none; REASSIGN_REQUESTED | `EscalationChainTest` `resolution breach of P1 and P2 escalates to ADMIN`, `resolution breach of P3 is not escalated`, `unacknowledged response breach asks for a reassignment` | Automated |
+| TC-36 | R | FR-54 | Escalation chain rules | resolution breach of P1/P2; of P3; unacknowledged response breach with and without a team lead; acknowledged incident | ADMIN escalation; none; reassigned to the team lead (level TEAM_LEAD); ADMIN and no reassignment; no escalation | `EscalationChainTest` `resolution breach of P1 and P2 escalates to ADMIN, even when a team lead exists`, `resolution breach of P3 is not escalated`, `unacknowledged response breach reassigns to the team lead`, `without a team lead the response breach goes to the administrators and nothing is reassigned`, `an acknowledged incident is not escalated on response breach` | Automated |
 
 ### Assignment and intelligence
 
@@ -138,36 +138,50 @@ injected (`Clock`, `now` parameters), so SLA tests move a clock instead of sleep
 | TC-76 | E | NFR-16 | Error messages hide server details | parse problem+json, non-JSON, 5xx | detail for 4xx; generic message for 5xx and unreachable | `errors.test.ts` `parses problem+json`, `falls back when the body is not JSON`, `is generic for 5xx and an unreachable backend` | Automated |
 | TC-77 | E | NFR-05 | Login throttle message | 429 with `Retry-After` | "try again in N minutes"; query text never reflected | `loginMessages.test.ts` `429 shows the wait, 400 a fixed hint, anything else the backend message`, `never reflects query text` | Automated |
 
-<!-- TODO(verify after merge): add test cases for the parallel tracks (incident editing, escalation Technician ->
-Team Lead -> Admin, SLA risk detection and admin SLA monitor, incident correlation, technician workload view) with
-the real test class and method names once merged. -->
+### Incident editing, escalation, SLA risk, correlation and administration
+
+| ID | Type | Req | Scenario | Steps / input | Expected result | Automated test | Status |
+|---|---|---|---|---|---|---|---|
+| TC-78 | N, R | FR-59 | Reporter edits before work starts | reporter changes title, impact, urgency, users, service while ASSIGNED | only real changes are reported; priority and deadlines follow; an edit that changes nothing is empty | `IncidentEditTest` `the reporter edits every field before work starts and only real changes are reported`, `an edit that changes nothing is empty and does not touch the incident`, `text-only edits do not affect priority`; `IncidentOpsApiTest` `the reporter edits before work starts and priority and deadlines follow` | Automated |
+| TC-79 | A, R | FR-59 | Who may edit what | reporter after work started; assignee text and impact; admin before RESOLVED; stranger; other technician; resolved incident | reporter locked out once work starts; assignee limited to impact, urgency, users, service; nothing editable after RESOLVED | `IncidentEditTest` `the reporter may no longer edit once the technician has started`, `the assignee may correct impact urgency users and service but not the text`, `an administrator may edit everything until the incident is resolved`, `strangers and other technicians cannot edit`, `nothing can be edited once the incident is resolved`; `IncidentOpsApiTest` `who may edit what` | Automated |
+| TC-80 | I, E | FR-59 | Invalid edits | invalid values, empty edit, unknown service | 400 and the incident is unchanged | `IncidentEditTest` `invalid values are rejected and leave the incident unchanged`; `IncidentOpsApiTest` `invalid edits are rejected` | Automated |
+| TC-81 | N | FR-59, FR-57 | Edit notifications | staff edits an incident; an edit that changes nothing | the reporter is notified; no event is published for a no-op edit | `IncidentOpsApiTest` `staff edits notify the reporter and an edit that changes nothing publishes nothing`, `the service can be set and cleared and the deadlines keep their original start` | Automated |
+| TC-82 | R | FR-54 | Escalation to a team lead is persisted once | unacknowledged breach with a matching-skill team lead; then without an available team lead | reassigned to the team lead and recorded once; otherwise the administrators are told and the assignee stays | `EscalationIntegrationTest` `an unacknowledged breach is reassigned to the team lead with the matching skill and recorded once`, `without an available team lead the administrators are told and the assignee stays`; `EscalationChainTest` `a classified incident reassigned by escalation also publishes the status change` | Automated |
+| TC-83 | N, B | FR-60 | SLA risk: breached, at risk, fine | fresh incident; passed deadline; warning threshold; exact deadline instant; zero-length window | fine; BREACHED; AT_RISK; not yet a breach at the exact instant; counts as fully used | `SlaRiskDetectorTest` `a fresh incident is fine`, `a passed response deadline breaches while nobody acknowledged`, `reaching the warning threshold of the resolution window is at risk`, `the exact deadline instant is not yet a breach`, `a window of length zero counts as fully used` | Automated |
+| TC-84 | R | FR-60 | SLA risk rules | unacknowledged with under 25 percent left; unassigned half way; overloaded assignee; several rules at once | each rule produces AT_RISK; the most pressing deadline is reported | `SlaRiskDetectorTest` `an unacknowledged incident with under a quarter of the response time left is at risk even with a high threshold`, `an unassigned incident half way through its response window is at risk`, `an overloaded assignee only matters once half the resolution window is gone`, `the most pressing deadline is reported when several rules fire` | Automated |
+| TC-85 | N, A | FR-60, FR-61 | Workload and SLA monitor API | technician opens workload and toggles availability; administrator opens the at-risk list | capacity, counts and OVERDUE marks shown; breached and at-risk incidents listed for administrators | `IncidentOpsApiTest` `the workload shows capacity, counts and overdue marks, and the technician can toggle availability`, `the SLA monitor lists breached and at risk incidents for administrators` | Automated |
+| TC-86 | N, B | FR-62 | Correlation clusters | three open incidents on one service in the window; only two; older than the window; resolved; no service | a cluster of three; two are not enough; old and closed ones do not count; grouped by category when there is no service | `IncidentCorrelatorTest` `three open incidents on one service in the window form a cluster`, `two incidents are not enough`, `incidents older than the window do not count`, `resolved and closed incidents do not count`, `incidents without a service are grouped by category and a service wins over the category` | Automated |
+| TC-87 | A | FR-62 | Cluster visibility | administrator lists clusters; a user opens related incidents of one | admins see the cluster; related incidents are limited to what the viewer may see | `IncidentOpsApiTest` `three open incidents on one service form a cluster, shown to admins and as related incidents with visibility` | Automated |
+| TC-88 | N, I, A | FR-33 | SLA policy administration | list defaults; create, edit and delete an override; duplicate; non-admin | defaults first and not deletable; an override changes new deadlines; validation and uniqueness enforced; 403 for non-admins | `SlaPolicyAdminApiTest` `lists the four defaults first, then overrides with the service name`, `an override changes new deadlines, edits and deletes work, defaults cannot be deleted`, `validation and uniqueness`, `only administrators may use the endpoints`, `domain validation of a policy` | Automated |
+| TC-89 | N | FR-63 | Demo data | start with demo data enabled; run the seeder twice | users and incidents are created through the real services; the second run adds no duplicates | `DemoDataSeederTest` `demo users and incidents are created through the real services`, `a second run completes missing items and creates no duplicates` | Automated |
+| TC-90 | N, I | FR-33, FR-32 | Admin pages and dashboards (frontend logic) | format and group SLA policies; validate SLA times and service forms; dashboard and workload helpers | policies grouped by priority then service; blank, zero and reversed times rejected; deadline tones and badges computed | `adminConfig.test.ts` `groupSlaPolicies` `orders defaults by priority and groups overrides by service name`, `parseSlaTimes` `rejects blank, zero, reversed and out of range values`; `dashboard.test.ts` `slaTone` `is at risk after 75% of the window`; `ops.test.ts` `markersFromWorkload` `keeps only rows that need attention` | Automated |
 
 ## 9.3 Coverage of the brief's test categories
 
 | Category | Cases |
 |---|---|
-| Normal operations | TC-01, 02, 03, 08, 15, 19, 21, 27, 28, 47, 49, 50, 52, 54, 55, 63, 66, 74, 75 |
-| Boundary conditions | TC-12, 13, 20, 22, 24, 31, 35, 38, 44, 45, 58, 62, 71 |
-| Invalid inputs | TC-13, 25, 44, 53, 56, 62, 63 |
-| Exceptions and error responses | TC-04, 05, 07, 30, 34, 42, 48, 57, 60, 65, 68, 69, 72, 74, 76 |
-| Authorisation | TC-06, 07, 14, 18, 43, 46, 49, 51, 53, 54, 59, 61, 68, 73 |
-| Business rules | TC-04 to 06, 08 to 12, 14 to 18, 20, 22 to 24, 26, 29, 32, 33, 36 to 42, 48, 52, 59, 64, 70 |
+| Normal operations | TC-01, 02, 03, 08, 15, 19, 21, 27, 28, 47, 49, 50, 52, 54, 55, 63, 66, 74, 75, 78, 81, 83, 85, 86, 88, 89 |
+| Boundary conditions | TC-12, 13, 20, 22, 24, 31, 35, 38, 44, 45, 58, 62, 71, 83, 86 |
+| Invalid inputs | TC-13, 25, 44, 53, 56, 62, 63, 80, 88, 90 |
+| Exceptions and error responses | TC-04, 05, 07, 30, 34, 42, 48, 57, 60, 65, 68, 69, 72, 74, 76, 80 |
+| Authorisation | TC-06, 07, 14, 18, 43, 46, 49, 51, 53, 54, 59, 61, 68, 73, 79, 85, 87, 88 |
+| Business rules | TC-04 to 06, 08 to 12, 14 to 18, 20, 22 to 24, 26, 29, 32, 33, 36 to 42, 48, 52, 59, 64, 70, 78, 79, 82, 84 |
 
 ## 9.4 Test counts and how to run
 
-Measured on this branch (`./gradlew test` and `pnpm test`, run on 2026-11-18, all green):
+Measured after merging `main` (`./gradlew test --no-daemon` and `pnpm test`, run on 2026-11-19, all green). Backend counts are
+summed from `backend/build/test-results/test/*.xml`:
 
 | Suite | Test files / classes | Tests executed | Failures |
 |---|---|---|---|
-| Backend (JUnit 5, Testcontainers PostgreSQL 17) | 33 classes | 283 | 0 |
-| Frontend (Vitest) | 19 files | 357 (parameterised cases counted separately) | 0 |
-| **Total** | 52 | **640** | **0** |
+| Backend (JUnit 5, Testcontainers PostgreSQL 17) | 39 classes | 331 | 0 |
+| Frontend (Vitest) | 22 files | 420 (parameterised cases counted separately) | 0 |
+| **Total** | 61 | **751** | **0** |
 
-Backend tests per package: `auth` 88, `user` 79, `p5` 25 (assignment, intelligence), `incident` 24, `p2` 20, `sla` 13, `priority` 7, `p4` 6,
-`service` 5, `reports` 4, `search` 4, `web` 4, `notification` 2, `audit` 1, plus the application context test (static
-count of `@Test` methods per directory). The documented cases above are a curated, traceable selection of these.
-
-<!-- TODO(verify after merge): re-run both suites after the parallel tracks are merged and update this table. -->
+Backend tests per package: `auth` 88, `user` 79, `sla` 35, `incident` 35, `p5` 25 (assignment, text similarity, API), `p2` 20
+(pipeline, API, demo data), `ops` 8, `priority` 7, `intelligence` 7, `p4` 6, `service` 5, `reports` 4, `search` 4,
+`web` 4, `notification` 2, `audit` 1, plus the application context test. The documented cases above are a curated,
+traceable selection of these.
 
 Run the same checks as CI:
 

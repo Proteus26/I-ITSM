@@ -78,36 +78,35 @@ one-to-one onto the implementation; the mapping is in [10-user-guide-and-demo.md
 |---|---|---|
 | G1 | Cover every MVP item of the brief | Traceability table in [02-requirements.md](02-requirements.md) |
 | G2 | Demonstrate object-oriented design (encapsulation, inheritance, polymorphism, abstraction, interfaces, composition) and at least two design patterns | [05-design-patterns-and-oop.md](05-design-patterns-and-oop.md) (eight patterns, nine uses) |
-| G3 | Make priority, assignment and SLA logic replaceable | Strategy interfaces, selectable by administrator setting (priority) or configuration (assignment) |
+| G3 | Make priority, assignment and SLA logic replaceable | Strategy interfaces, selectable by administrator setting (priority) or configuration (assignment; the admin setting is stored but not yet read, see chapter 5) |
 | G4 | Never lose history | Every status change publishes an event that is audited in the same transaction |
 | G5 | Basic enterprise security | JWT with revocation, BCrypt, role checks, CSRF defences, input validation ([08-exceptions-and-security.md](08-exceptions-and-security.md)) |
-| G6 | Be testable and tested | 283 backend and 357 frontend automated tests ([09-test-cases.md](09-test-cases.md)) |
+| G6 | Be testable and tested | 331 backend and 420 frontend automated tests ([09-test-cases.md](09-test-cases.md)) |
 | G7 | Run anywhere with one command | `docker compose up --build` |
 
 ## 1.6 Scope
 
 **In scope**
 
-* Three roles (employee, technician, administrator) with different screens.
-* Incident lifecycle with ten statuses, notes, information requests, feedback, reopen and cancel.
-* Priority calculation (two strategies), SLA policies and monitoring, escalation events.
-* Two assignment strategies, category suggestion and duplicate hints (the two "intelligent features").
+* Three roles (employee, technician, administrator) with role-specific dashboards and screens.
+* Incident lifecycle with ten statuses, notes, information requests, feedback, reopen and cancel, and editing of an
+  incident after reporting (by role and status).
+* Priority calculation (two strategies), SLA policies (defaults and per-service overrides, edited by administrators),
+  SLA monitoring with an admin SLA monitor and risk prediction, and an escalation chain Technician, Team Lead, Administrator.
+* Two assignment strategies, a technician workload view, category suggestion, duplicate hints, SLA risk detection and
+  incident correlation (the "intelligent features").
 * Notifications (in-app with live push, email through an adapter), audit trail, search, reports.
-* Persistence in PostgreSQL with versioned migrations.
+* Persistence in PostgreSQL with versioned migrations, optional demo data for the presentation.
 
 **Out of scope or not done** (documented honestly so evaluators are not surprised)
 
-* Editing an incident after it was reported, and attachments.
+* Attachments on incidents.
 * Pausing the SLA clock while an incident waits for information from the reporter.
 * Automatic closing of VERIFIED incidents (the state machine allows `SYSTEM` to close, but no scheduler does it).
+* The admin setting `assignment.strategy` is not yet read by the assignment selector (the environment variable is).
+* Correlated incidents are only shown, not linked or merged into a parent incident.
 * Shared (multi-node) login throttle and round-robin pointer: both are in memory per instance.
 * Native mobile client, SSO/OAuth with an external provider, real payment or cloud integrations.
-
-<!-- TODO(verify after merge): parallel tracks are adding admin SLA policy/services pages, an escalation chain
-Technician -> Team Lead -> Admin, incident editing, a technician workload view, an admin SLA monitor with risk
-detection, incident correlation, role dashboards and richer demo data. When they are merged, move the matching
-bullets from "Out of scope" above into "In scope" and re-check the wording. -->
-
 ## 1.7 Constraints
 
 | Constraint | Effect |
