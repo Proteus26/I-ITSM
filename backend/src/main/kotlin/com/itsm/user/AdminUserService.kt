@@ -2,6 +2,8 @@ package com.itsm.user
 
 import com.itsm.auth.CurrentUser
 import com.itsm.auth.SessionRevoker
+import com.itsm.category.CategoryRepository
+import com.itsm.common.exception.domainRequire
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -15,6 +17,7 @@ class AdminUserService(
     private val passwordEncoder: PasswordEncoder,
     private val currentUser: CurrentUser,
     private val sessionRevoker: SessionRevoker,
+    private val categories: CategoryRepository,
 ) {
 
     @Transactional(readOnly = true)
@@ -37,6 +40,7 @@ class AdminUserService(
     fun create(request: CreateUserRequest): UserResponse {
         val email = normalizeEmail(request.email)
         if (users.existsByEmail(email)) throw EmailAlreadyRegisteredException(email)
+        request.skills?.let { requireKnownSkills(it) }
         val user = userFactory.create(
             request.role, email, request.fullName, request.password,
             request.department, request.level, request.maxActiveIncidents, request.skills,
@@ -47,7 +51,8 @@ class AdminUserService(
     /**
      * Partial update; null fields are left unchanged. Fields that do not apply to the user's type
      * (department for non-employees; level, maxActiveIncidents, available, skills for non-technicians)
-     * are rejected with 400. A blank department clears it. Admins cannot deactivate themselves.
+     * are rejected with 400. A blank department clears it. Skills must be codes of active categories (400 otherwise).
+     * Admins cannot deactivate themselves.
      */
     @Transactional
     fun update(id: Long, request: UpdateUserRequest): UserResponse {
@@ -62,6 +67,8 @@ class AdminUserService(
         if (techFields && user !is Technician) {
             throw InvalidUserUpdateException("level, maxActiveIncidents, available and skills apply to technicians only")
         }
+
+        request.skills?.let { requireKnownSkills(it) }
 
         request.fullName?.let { user.rename(it) }
         request.email?.let {
@@ -93,6 +100,15 @@ class AdminUserService(
     fun resetPassword(id: Long, request: ResetPasswordRequest) {
         find(id).resetPassword(passwordEncoder, request.newPassword)
         sessionRevoker.revoke(id)
+    }
+
+    /** Skills are category codes: every one must name an existing, active category, so the database never sees a bad one. */
+    private fun requireKnownSkills(skills: Set<String>) {
+        val codes = skills.map { it.trim().uppercase() }
+        domainRequire(codes.none { it.isEmpty() }) { "Skill code must not be blank" }
+        val known = categories.findAllById(codes).filter { it.active }.mapTo(mutableSetOf()) { it.code }
+        val unknown = codes.filter { it !in known }.distinct().sorted()
+        if (unknown.isNotEmpty()) throw UnknownSkillException(unknown)
     }
 
     private fun find(id: Long): User = users.findById(id).orElseThrow { UserNotFoundException(id) }
