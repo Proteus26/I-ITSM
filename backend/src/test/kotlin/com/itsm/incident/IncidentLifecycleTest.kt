@@ -1,6 +1,7 @@
 package com.itsm.incident
 
 import com.itsm.auth.UnauthorizedOperationException
+import com.itsm.category.Category
 import com.itsm.common.exception.DomainValidationException
 import com.itsm.incident.IncidentStatus.ACKNOWLEDGED
 import com.itsm.incident.IncidentStatus.ASSIGNED
@@ -31,6 +32,8 @@ class IncidentLifecycleTest {
     private val otherTech = Actor(3, Role.TECHNICIAN)
     private val admin = Actor(9, Role.ADMIN)
 
+    private fun category(code: String) = Category(code, code.lowercase().replaceFirstChar { it.uppercase() })
+
     private fun newIncident() = Incident(
         number = "INC-000001",
         title = "Payment application unavailable",
@@ -43,7 +46,7 @@ class IncidentLifecycleTest {
     )
 
     private fun assigned(): Incident = newIncident().apply {
-        classify("APPLICATION", Actor.SYSTEM, t0)
+        classify(category("APPLICATION"), Actor.SYSTEM, t0)
         assign(2, Actor.SYSTEM, t0)
     }
 
@@ -59,7 +62,7 @@ class IncidentLifecycleTest {
         val incident = newIncident()
         assertEquals(NEW, incident.status)
 
-        incident.classify("application", Actor.SYSTEM, t0.plusSeconds(1))
+        incident.classify(category("application"), Actor.SYSTEM, t0.plusSeconds(1))
         assertEquals(CLASSIFIED, incident.status)
         assertEquals("APPLICATION", incident.categoryCode)
 
@@ -96,7 +99,7 @@ class IncidentLifecycleTest {
         assertTrue(ClosedState.allowedTransitions.isEmpty())
         assertTrue(CancelledState.allowedTransitions.isEmpty())
         val cancelled = newIncident().apply { transitionTo(CANCELLED, reporter, t0) }
-        assertFailsWith<InvalidStateTransitionException> { cancelled.transitionTo(CLASSIFIED, admin, t0) }
+        assertFailsWith<InvalidStateTransitionException> { cancelled.transitionTo(IN_PROGRESS, admin, t0) }
     }
 
     @Test
@@ -150,23 +153,106 @@ class IncidentLifecycleTest {
         assertFailsWith<DomainValidationException> { incident.resolve("  ", null, tech, t0) }
         assertEquals(IN_PROGRESS, incident.status)
         assertNull(incident.resolutionSummary)
-        assertFailsWith<DomainValidationException> { incident.transitionTo(RESOLVED, tech, t0) }
+        assertFailsWith<InvalidIncidentOperationException> { incident.transitionTo(RESOLVED, tech, t0) }
         assertEquals(IN_PROGRESS, incident.status)
     }
 
     @Test
-    fun `assign only works from CLASSIFIED or ASSIGNED, and only for system or admin`() {
+    fun `assign from CLASSIFIED needs system or admin and rejects other statuses`() {
         assertFailsWith<InvalidStateTransitionException> { newIncident().assign(2, Actor.SYSTEM, t0) }
+        val cancelled = newIncident().apply { transitionTo(CANCELLED, reporter, t0) }
+        assertFailsWith<InvalidStateTransitionException> { cancelled.assign(2, admin, t0) }
+        assertFailsWith<InvalidStateTransitionException> { resolved().assign(3, admin, t0) }
 
-        val classified = newIncident().apply { classify("NETWORK", Actor.SYSTEM, t0) }
+        val classified = newIncident().apply { classify(category("NETWORK"), Actor.SYSTEM, t0) }
         assertFailsWith<UnauthorizedOperationException> { classified.assign(2, tech, t0) }
+        assertEquals(CLASSIFIED, classified.status)
+        assertEquals(StatusChange(CLASSIFIED, ASSIGNED), classified.assign(2, admin, t0))
+        assertEquals(2L, classified.assigneeId)
+    }
 
+    @Test
+    fun `reassigning while ASSIGNED changes the assignee without a status change`() {
         val incident = assigned()
-        assertNull(incident.assign(3, admin, t0)) // reassignment: no status change
+        assertNull(incident.assign(3, admin, t0))
         assertEquals(3L, incident.assigneeId)
         assertEquals(ASSIGNED, incident.status)
         assertFailsWith<UnauthorizedOperationException> { incident.assign(2, reporter, t0) }
-        assertFailsWith<InvalidStateTransitionException> { inProgress().assign(3, admin, t0) }
+        assertFailsWith<UnauthorizedOperationException> { incident.assign(2, tech, t0) }
+    }
+
+    @Test
+    fun `reassigning from an active status sends the incident back to ASSIGNED`() {
+        val acknowledged = assigned().apply { transitionTo(ACKNOWLEDGED, tech, t0) }
+        assertEquals(StatusChange(ACKNOWLEDGED, ASSIGNED), acknowledged.assign(3, Actor.SYSTEM, t0.plusSeconds(5)))
+        assertEquals(3L, acknowledged.assigneeId)
+        assertEquals(ASSIGNED, acknowledged.status)
+        assertEquals(t0.plusSeconds(5), acknowledged.updatedAt)
+        // the new technician has to acknowledge; the previous one no longer can
+        assertFailsWith<UnauthorizedOperationException> { acknowledged.transitionTo(ACKNOWLEDGED, tech, t0) }
+        acknowledged.transitionTo(ACKNOWLEDGED, otherTech, t0)
+
+        assertEquals(StatusChange(IN_PROGRESS, ASSIGNED), inProgress().assign(3, admin, t0))
+        val pending = inProgress().apply { transitionTo(PENDING_INFO, tech, t0) }
+        assertEquals(StatusChange(PENDING_INFO, ASSIGNED), pending.assign(3, admin, t0))
+        assertFailsWith<UnauthorizedOperationException> { inProgress().assign(3, tech, t0) }
+    }
+
+    @Test
+    fun `assigning the current assignee again is a no-op`() {
+        val incident = inProgress()
+        assertNull(incident.assign(2, admin, t0.plusSeconds(9)))
+        assertEquals(IN_PROGRESS, incident.status)
+        assertEquals(t0, incident.updatedAt)
+    }
+
+    @Test
+    fun `transitionTo cannot bypass classify, assign or resolve`() {
+        val fresh = newIncident()
+        assertFailsWith<InvalidIncidentOperationException> { fresh.transitionTo(CLASSIFIED, Actor.SYSTEM, t0) }
+        assertEquals(NEW, fresh.status)
+        assertNull(fresh.categoryCode)
+
+        val classified = newIncident().apply { classify(category("NETWORK"), Actor.SYSTEM, t0) }
+        assertFailsWith<InvalidIncidentOperationException> { classified.transitionTo(ASSIGNED, Actor.SYSTEM, t0) }
+        assertEquals(CLASSIFIED, classified.status)
+        assertNull(classified.assigneeId)
+
+        val working = inProgress()
+        assertFailsWith<InvalidIncidentOperationException> { working.transitionTo(RESOLVED, tech, t0) }
+        assertEquals(IN_PROGRESS, working.status)
+        assertNull(working.resolutionSummary)
+    }
+
+    @Test
+    fun `classify requires an active category and leaves the incident unchanged otherwise`() {
+        val inactive = category("NETWORK").apply { deactivate() }
+        val incident = newIncident()
+        assertFailsWith<DomainValidationException> { incident.classify(inactive, Actor.SYSTEM, t0) }
+        assertEquals(NEW, incident.status)
+        assertNull(incident.categoryCode)
+    }
+
+    @Test
+    fun `reopening clears the resolution and feedback so the next resolution starts fresh`() {
+        val incident = resolved()
+        incident.submitFeedback(2, "Did not help", reporter, t0)
+        incident.transitionTo(IN_PROGRESS, reporter, t0.plusSeconds(5))
+
+        assertNull(incident.resolvedAt)
+        assertNull(incident.resolutionSummary)
+        assertNull(incident.rootCause)
+        assertNull(incident.feedbackRating)
+        assertNull(incident.feedbackComment)
+        assertFailsWith<InvalidIncidentOperationException> { incident.submitFeedback(5, null, reporter, t0) }
+        assertFailsWith<DomainValidationException> { incident.resolve(" ", null, tech, t0) }
+        assertEquals(IN_PROGRESS, incident.status)
+
+        incident.resolve("Replaced the card", null, tech, t0.plusSeconds(60))
+        assertEquals("Replaced the card", incident.resolutionSummary)
+        assertNull(incident.rootCause)
+        incident.submitFeedback(5, "Fixed now", reporter, t0.plusSeconds(70))
+        assertEquals(5, incident.feedbackRating)
     }
 
     @Test

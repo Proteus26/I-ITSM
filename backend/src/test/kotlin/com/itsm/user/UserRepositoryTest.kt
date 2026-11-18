@@ -45,7 +45,7 @@ class UserRepositoryTest @Autowired constructor(
         val emp = users.save(factory.createEmployee("emp@x.com", "Emp", "pw", "Finance"))
         val tech = users.save(
             factory.createTechnician(
-                "tech@x.com", "Tech", "pw", TechnicianLevel.L2, 7, setOf("network", "email"),
+                "tech@x.com", "Tech", "pw", TechnicianLevel.L2, 7, setOf("network", "database"),
             ).also { it.markUnavailable() },
         )
         val admin = users.save(factory.createAdministrator("admin@x.com", "Admin", "pw"))
@@ -61,7 +61,7 @@ class UserRepositoryTest @Autowired constructor(
         assertEquals(TechnicianLevel.L2, loadedTech.level)
         assertEquals(7, loadedTech.maxActiveIncidents)
         assertFalse(loadedTech.available)
-        assertEquals(setOf("NETWORK", "EMAIL"), loadedTech.skills)
+        assertEquals(setOf("NETWORK", "DATABASE"), loadedTech.skills)
         assertEquals(Role.TECHNICIAN, loadedTech.role)
         assertEquals(tech.id, loadedTech.id)
 
@@ -133,19 +133,19 @@ class UserRepositoryTest @Autowired constructor(
 
     @Test
     fun `findAvailableWithSkill returns only active available technicians with the skill`() {
-        val match = technicians.save(factory.createTechnician("match@x.com", "M", "pw", skills = setOf("network", "email")))
+        val match = technicians.save(factory.createTechnician("match@x.com", "M", "pw", skills = setOf("network", "database")))
         technicians.save(
             factory.createTechnician("unavail@x.com", "U", "pw", skills = setOf("network")).also { it.markUnavailable() },
         )
         technicians.save(
             factory.createTechnician("inactive@x.com", "I", "pw", skills = setOf("network")).also { it.deactivate() },
         )
-        technicians.save(factory.createTechnician("noskill@x.com", "N", "pw", skills = setOf("email")))
+        technicians.save(factory.createTechnician("noskill@x.com", "N", "pw", skills = setOf("database")))
         flushAndClear()
 
         val result = technicians.findAvailableWithSkill("NETWORK")
         assertEquals(listOf(match.id), result.map { it.id })
-        assertEquals(setOf("NETWORK", "EMAIL"), result.single().skills)
+        assertEquals(setOf("NETWORK", "DATABASE"), result.single().skills)
     }
 
     @Test
@@ -170,16 +170,16 @@ class UserRepositoryTest @Autowired constructor(
 
     @Test
     fun `skill removal and addition persist`() {
-        val saved = technicians.save(factory.createTechnician("t@x.com", "T", "pw", skills = setOf("network", "email")))
+        val saved = technicians.save(factory.createTechnician("t@x.com", "T", "pw", skills = setOf("network", "database")))
         flushAndClear()
 
         val loaded = technicians.findById(saved.id!!).orElseThrow()
         assertTrue(loaded.removeSkill("network"))
-        loaded.addSkill("vpn")
+        loaded.addSkill("cloud")
         technicians.save(loaded)
         flushAndClear()
 
-        assertEquals(setOf("EMAIL", "VPN"), technicians.findById(saved.id!!).orElseThrow().skills)
+        assertEquals(setOf("DATABASE", "CLOUD"), technicians.findById(saved.id!!).orElseThrow().skills)
         val rows = jdbc.queryForObject(
             "select count(*) from technician_skills where technician_id = ?", Int::class.java, saved.id!!,
         )

@@ -78,7 +78,7 @@ class AdminUserApiTest @Autowired constructor(
         val email = api.uniqueEmail("newtech")
         val result = api.post(
             "/api/admin/users",
-            createBody("TECHNICIAN", email, mapOf("level" to "L2", "skills" to listOf("net", "vpn"))),
+            createBody("TECHNICIAN", email, mapOf("level" to "L2", "skills" to listOf("network", "security"))),
             adminToken,
         )
 
@@ -86,7 +86,7 @@ class AdminUserApiTest @Autowired constructor(
         val body = api.json(result)
         assertEquals("TECHNICIAN", body["role"].asString())
         assertEquals("L2", body["technician"]["level"].asString())
-        assertEquals(listOf("NET", "VPN"), body["technician"]["skills"].map { it.asString() }.sorted())
+        assertEquals(listOf("NETWORK", "SECURITY"), body["technician"]["skills"].map { it.asString() }.sorted())
         assertEquals(5, body["technician"]["maxActiveIncidents"].asInt())
 
         val token = api.token(email, pw)
@@ -251,12 +251,12 @@ class AdminUserApiTest @Autowired constructor(
     @Test
     fun `patch updates technician fields and replaces skills`() {
         val t = users.saveAndFlush(
-            factory.createTechnician(api.uniqueEmail("ptech"), "P Tech", pw, TechnicianLevel.L1, 5, setOf("a", "b")),
+            factory.createTechnician(api.uniqueEmail("ptech"), "P Tech", pw, TechnicianLevel.L1, 5, setOf("hardware", "software")),
         )
 
         val result = api.patch(
             "/api/admin/users/${t.id}",
-            mapOf("level" to "TEAM_LEAD", "maxActiveIncidents" to 9, "available" to false, "skills" to listOf("b", "c")),
+            mapOf("level" to "TEAM_LEAD", "maxActiveIncidents" to 9, "available" to false, "skills" to listOf("software", "cloud")),
             adminToken,
         )
 
@@ -265,7 +265,23 @@ class AdminUserApiTest @Autowired constructor(
         assertEquals("TEAM_LEAD", tech["level"].asString())
         assertEquals(9, tech["maxActiveIncidents"].asInt())
         assertEquals(false, tech["available"].asBoolean())
-        assertEquals(listOf("B", "C"), tech["skills"].map { it.asString() }.sorted())
+        assertEquals(listOf("CLOUD", "SOFTWARE"), tech["skills"].map { it.asString() }.sorted())
+    }
+
+    @Test
+    fun `unknown skills are rejected with 400 naming them and nothing is created or changed`() {
+        val email = api.uniqueEmail("badskill")
+        val create = api.post("/api/admin/users", createBody("TECHNICIAN", email, mapOf("skills" to listOf("network", "bogus"))), adminToken)
+        assertEquals(400, create.response.status)
+        assertTrue(api.json(create)["detail"].asString().contains("BOGUS"))
+        assertTrue(users.findByEmail(email) == null)
+
+        val t = users.saveAndFlush(factory.createTechnician(api.uniqueEmail("keep"), "K Tech", pw, skills = setOf("network")))
+        val patch = api.patch("/api/admin/users/${t.id}", mapOf("skills" to listOf("vpn")), adminToken)
+        assertEquals(400, patch.response.status)
+        assertTrue(api.json(patch)["detail"].asString().contains("VPN"))
+        val tech = api.json(api.get("/api/admin/users/${t.id}", adminToken))["technician"]
+        assertEquals(listOf("NETWORK"), tech["skills"].map { it.asString() })
     }
 
     @Test

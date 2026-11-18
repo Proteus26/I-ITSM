@@ -1,6 +1,7 @@
 package com.itsm.incident
 
 import com.itsm.auth.UnauthorizedOperationException
+import com.itsm.category.Category
 import com.itsm.common.exception.domainRequire
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -167,30 +168,55 @@ class Incident(
 
     fun availableTransitions(actor: Actor): Set<IncidentStatus> = state.availableTargets(this, actor)
 
-    /** The one way to change status. Throws if the lifecycle or the actor's role does not allow it. */
+    /**
+     * Moves the incident to [target] for the transitions that carry no data of their own: acknowledge, start work,
+     * ask for information, cancel, verify, close and reopen. Throws if the lifecycle or the actor's role does not
+     * allow it. CLASSIFIED, ASSIGNED and RESOLVED are refused here because they must record a category, an assignee
+     * and a resolution; use [classify], [assign] and [resolve] for those. Reopening (RESOLVED -> IN_PROGRESS) clears
+     * the previous resolution, including any feedback, so the next resolution starts fresh.
+     */
     fun transitionTo(target: IncidentStatus, actor: Actor, now: Instant): StatusChange {
-        state.checkTransition(this, target, actor)
-        if (target == IncidentStatus.RESOLVED) {
-            domainRequire(!resolutionSummary.isNullOrBlank()) { "A resolution summary is required to resolve an incident" }
+        when (target) {
+            IncidentStatus.CLASSIFIED -> throw InvalidIncidentOperationException("Use classify() to move an incident to CLASSIFIED")
+            IncidentStatus.ASSIGNED -> throw InvalidIncidentOperationException("Use assign() to move an incident to ASSIGNED")
+            IncidentStatus.RESOLVED -> throw InvalidIncidentOperationException("Use resolve() to move an incident to RESOLVED")
+            else -> Unit
         }
+        return move(target, actor, now)
+    }
+
+    /** The internal status change shared by [transitionTo], [classify], [assign] and [resolve]; only checks the lifecycle and the actor. */
+    private fun move(target: IncidentStatus, actor: Actor, now: Instant): StatusChange {
+        state.checkTransition(this, target, actor)
         val from = status
         status = target
         when (target) {
             IncidentStatus.ACKNOWLEDGED -> acknowledgedAt = now
             IncidentStatus.RESOLVED -> resolvedAt = now
             IncidentStatus.CLOSED -> closedAt = now
-            IncidentStatus.IN_PROGRESS -> if (from == IncidentStatus.RESOLVED) resolvedAt = null // reopened
+            IncidentStatus.IN_PROGRESS -> if (from == IncidentStatus.RESOLVED) clearResolution() // reopened
             else -> Unit
         }
         touch(now)
         return StatusChange(from, target)
     }
 
-    /** NEW -> CLASSIFIED, recording the final category. */
-    fun classify(categoryCode: String, actor: Actor, now: Instant): StatusChange {
-        val code = requireText(categoryCode, "Category", 255).uppercase()
-        val change = transitionTo(IncidentStatus.CLASSIFIED, actor, now)
-        this.categoryCode = code
+    private fun clearResolution() {
+        resolvedAt = null
+        resolutionSummary = null
+        rootCause = null
+        feedbackRating = null
+        feedbackComment = null
+    }
+
+    /**
+     * NEW -> CLASSIFIED, recording the final [category]. The category must be active; the caller loads it, because
+     * this class does not know the repository.
+     */
+    fun classify(category: Category, actor: Actor, now: Instant): StatusChange {
+        domainRequire(category.active) { "Category ${category.code} is not active" }
+        val change = move(IncidentStatus.CLASSIFIED, actor, now)
+        categoryCode = category.code
         return change
     }
 
@@ -211,21 +237,31 @@ class Incident(
     }
 
     /**
-     * Assigns a technician. From CLASSIFIED this moves the incident to ASSIGNED; while ASSIGNED it reassigns
-     * (for example on escalation) without changing the status. Only the system or an administrator may assign.
-     * Returns the status change, or null for a reassignment.
+     * Assigns a technician. From CLASSIFIED this moves the incident to ASSIGNED. From any active status (ASSIGNED,
+     * ACKNOWLEDGED, IN_PROGRESS, PENDING_INFO) it reassigns, for example on SLA escalation: the new technician is
+     * set and the status goes back to ASSIGNED, so the new technician has to acknowledge. Only the system or an
+     * administrator may assign. Assigning the current assignee again changes nothing. Any other status throws
+     * [InvalidStateTransitionException].
+     *
+     * Returns the status change, or null when the status did not change (reassignment while ASSIGNED, or no-op).
      */
     fun assign(technicianId: Long, actor: Actor, now: Instant): StatusChange? = when (status) {
         IncidentStatus.CLASSIFIED -> {
-            val change = transitionTo(IncidentStatus.ASSIGNED, actor, now)
+            val change = move(IncidentStatus.ASSIGNED, actor, now)
             assigneeId = technicianId
             change
         }
-        IncidentStatus.ASSIGNED -> {
+        in REASSIGNABLE_STATUSES -> {
             if (!(actor.isSystem || actor.isAdmin)) throw UnauthorizedOperationException("Only the system or an administrator can reassign an incident")
-            assigneeId = technicianId
-            touch(now)
-            null
+            if (assigneeId == technicianId) {
+                null
+            } else {
+                val from = status
+                assigneeId = technicianId
+                status = IncidentStatus.ASSIGNED
+                touch(now)
+                if (from == IncidentStatus.ASSIGNED) null else StatusChange(from, IncidentStatus.ASSIGNED)
+            }
         }
         else -> throw InvalidStateTransitionException(status, IncidentStatus.ASSIGNED)
     }
@@ -233,11 +269,13 @@ class Incident(
     /** IN_PROGRESS -> RESOLVED with the resolution details. */
     fun resolve(summary: String, rootCause: String?, actor: Actor, now: Instant): StatusChange {
         state.checkTransition(this, IncidentStatus.RESOLVED, actor)
-        resolutionSummary = requireText(summary, "Resolution summary", MAX_TEXT)
-        this.rootCause = rootCause?.trim()?.ifEmpty { null }?.also {
+        val text = requireText(summary, "Resolution summary", MAX_TEXT)
+        val cause = rootCause?.trim()?.ifEmpty { null }?.also {
             domainRequire(it.length <= MAX_ROOT_CAUSE) { "Root cause must be at most $MAX_ROOT_CAUSE characters" }
         }
-        return transitionTo(IncidentStatus.RESOLVED, actor, now)
+        resolutionSummary = text
+        this.rootCause = cause
+        return move(IncidentStatus.RESOLVED, actor, now)
     }
 
     /** One rating (1-5) from the reporter, once the incident has been resolved. */
@@ -262,6 +300,9 @@ class Incident(
         const val MAX_TEXT = 4000
         const val MAX_ROOT_CAUSE = 2000
         const val MAX_COMMENT = 1000
+        private val REASSIGNABLE_STATUSES = setOf(
+            IncidentStatus.ASSIGNED, IncidentStatus.ACKNOWLEDGED, IncidentStatus.IN_PROGRESS, IncidentStatus.PENDING_INFO,
+        )
         private val FEEDBACK_STATUSES = setOf(IncidentStatus.RESOLVED, IncidentStatus.VERIFIED, IncidentStatus.CLOSED)
 
         private fun requireText(value: String, field: String, max: Int): String {

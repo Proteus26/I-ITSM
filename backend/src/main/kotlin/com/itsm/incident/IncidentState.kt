@@ -67,7 +67,7 @@ object ClassifiedState : IncidentState(IncidentStatus.CLASSIFIED) {
     )
 }
 
-/** Reassignment while ASSIGNED is not a status change; see [Incident.assign]. */
+/** Reassignment (also from later active statuses) is not a transition of its own; see [Incident.assign]. */
 object AssignedState : IncidentState(IncidentStatus.ASSIGNED) {
     override val transitions = mapOf(
         IncidentStatus.ACKNOWLEDGED to setOf(Party.ASSIGNEE),
