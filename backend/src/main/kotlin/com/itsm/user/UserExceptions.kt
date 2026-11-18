@@ -18,6 +18,10 @@ class CannotDeactivateSelfException : ItsmException("Administrators cannot deact
 
 class InvalidUserUpdateException(message: String) : ItsmException(message, HttpStatus.BAD_REQUEST)
 
+/** A skill is not the code of an active category. */
+class UnknownSkillException(codes: List<String>) :
+    ItsmException("Unknown or inactive skill categories: ${codes.joinToString(", ")}", HttpStatus.BAD_REQUEST)
+
 /** True when this violation was caused by the unique constraint on users.email (uq_users_email). */
 fun DataIntegrityViolationException.isEmailConflict(): Boolean =
     generateSequence<Throwable>(this) { it.cause }.any { t ->
