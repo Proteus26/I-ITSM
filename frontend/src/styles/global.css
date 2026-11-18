@@ -14,6 +14,8 @@
   --info: #1a4fa3;
   --info-bg: #e8f0fe;
   --warn-bg: #fff4e0;
+  --warn-border: #b26a00;
+  --warn-text: #5c3a00;
   --neutral: #444c58;
   --neutral-bg: #eceef1;
   --input-border: #6b7380;
@@ -43,6 +45,8 @@
     --info: #a9c1f8;
     --info-bg: #1b2740;
     --warn-bg: #382a10;
+    --warn-border: #e0a040;
+    --warn-text: #f3d9a4;
     --neutral: #c3cad4;
     --neutral-bg: #2a3039;
     --input-border: #7d8796;
@@ -61,6 +65,9 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
@@ -108,6 +115,8 @@ main:focus {
 }
 
 main {
+  flex: 1 0 auto;
+  width: 100%;
   max-width: 1000px;
   margin: 0 auto;
   padding: 1.5rem 1rem 3rem;
@@ -460,6 +469,10 @@ textarea[aria-invalid='true'] {
   align-items: start;
 }
 
+.action-grid {
+  margin-bottom: 1.5rem;
+}
+
 .action-grid > .card {
   margin-bottom: 0;
 }
@@ -594,4 +607,261 @@ textarea[aria-invalid='true'] {
   dl.details {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Product shell: page header, footer, dashboard blocks, landing page. Added by the polish pass.
+   --------------------------------------------------------------------------------------------------------------- */
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.page-header h1 {
+  margin: 0;
+}
+
+.page-subtitle {
+  margin: 0.15rem 0 0;
+}
+
+.page-header .button-row {
+  align-items: center;
+}
+
+.site-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 0.6rem;
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+h3 {
+  font-size: 1.05rem;
+}
+
+/* Headline numbers */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.stat-value a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.stat-value a:hover {
+  text-decoration: underline;
+}
+
+.stat-hint {
+  font-size: 0.8rem;
+}
+
+.stat-danger { border-left: 4px solid var(--danger); }
+.stat-danger .stat-value { color: var(--danger); }
+.stat-warn { border-left: 4px solid var(--warn-border); }
+.stat-success { border-left: 4px solid var(--success); }
+.stat-success .stat-value { color: var(--success); }
+
+.big-number {
+  margin: 0 0 0.5rem;
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/* Progress bars (workload, SLA compliance) */
+.meter {
+  height: 0.6rem;
+  margin: 0.4rem 0;
+  background: var(--neutral-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+
+.meter-fill.meter-full {
+  background: var(--danger);
+}
+
+.meter-inline {
+  min-width: 8rem;
+  margin: 0.45rem 0 0;
+}
+
+/* Highlighted blocks and rows */
+.callout {
+  border-left: 4px solid var(--border);
+}
+
+.callout-warn { border-left-color: var(--warn-border); }
+.callout-success { border-left-color: var(--success); }
+
+.list-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem 1rem;
+}
+
+tr.row-overdue {
+  background: var(--danger-bg);
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+
+tr.row-at-risk {
+  background: var(--warn-bg);
+  box-shadow: inset 4px 0 0 var(--warn-border);
+}
+
+section[aria-labelledby] > .row-between > h2,
+section[aria-labelledby] > h2 {
+  margin: 0;
+}
+
+section[aria-labelledby] {
+  margin-bottom: 1.5rem;
+}
+
+/* Landing page */
+.hero {
+  padding: 2rem 0 1.5rem;
+  max-width: 44rem;
+}
+
+.hero h1 {
+  font-size: 2.2rem;
+  line-height: 1.2;
+  margin-bottom: 0.75rem;
+}
+
+.hero-lead {
+  font-size: 1.1rem;
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  counter-reset: step;
+  margin: 0 0 2rem;
+  padding: 0;
+}
+
+.steps li {
+  counter-increment: step;
+  padding: 0.4rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.steps li::before {
+  content: counter(step) '. ';
+  color: var(--primary);
+}
+
+.section-title {
+  margin-bottom: 1rem;
+}
+
+.bullets {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.bullets li {
+  margin-bottom: 0.35rem;
+}
+
+.status-line {
+  margin-top: 2rem;
+  font-size: 0.85rem;
+}
+
+/* Empty states are a card with a message and an optional action */
+.empty-state.card {
+  padding: 2rem 1.5rem;
+}
+
+.empty-state p {
+  margin: 0 0 0.75rem;
+}
+
+.empty-state p:last-child {
+  margin-bottom: 0;
+}
+
+.callout h2 {
+  margin-bottom: 0.25rem;
+}
+
+.callout .plain-list {
+  margin-top: 0.5rem;
 }
