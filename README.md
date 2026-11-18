@@ -146,6 +146,7 @@ CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull reque
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW` | backend | `5` / `15m` (failed logins per email before 429) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | backend | none for `bootRun`; `admin@itsm.local` / `ChangeMe123!` in docker compose |
 | `ITSM_MAIL_GATEWAY` / `MAIL_HOST` / `MAIL_PORT` | backend | `logging` / `localhost` / `1025`; set the gateway to `smtp` to send real email (see [docs/p4.md](docs/p4.md) for all notification settings) |
+| `ASSIGNMENT_STRATEGY`  | backend  | `skill-least-loaded`; or `round-robin` (see [docs/p5.md](docs/p5.md)) |
 | `FRONTEND_BASE_URL`    | backend  | `http://localhost:4321`; prefix for links in notification emails |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
 | `BACKEND_TIMEOUT_MS`   | frontend | `5000`; how long a page waits for the backend before treating it as unreachable |
@@ -345,6 +346,18 @@ class IncidentService(private val currentUser: CurrentUser) {
 - **`?notice=` parameters**: after a successful action the pages redirect with a fixed code that is mapped to a message and never echoed:
   `/admin/users/<id>?notice=created|updated|reset`, `/account?changed=1`, and `/login?registered=1` (shown when automatic login after
   registering fails).
+
+## Assignment and smart features (P5, minimal)
+
+Backend only so far; details and extension points are in [docs/p5.md](docs/p5.md).
+
+- **Assignment**: `AssignmentService.assign(...)` picks a technician (active, available, below capacity) with the
+  strategy named by `itsm.assignment.strategy` / `ASSIGNMENT_STRATEGY` (`skill-least-loaded` or `round-robin`);
+  `null` means nobody suits and the incident stays CLASSIFIED. Admins get ranked suggestions from
+  `GET /api/admin/assignment/recommendations?category=&priority=`.
+- **Category suggestion**: `GET /api/intelligence/suggest-category?title=&description=` (keyword rules, 204 when nothing matches).
+- **Duplicate hints**: `GET /api/intelligence/similar?title=&description=&excludeId=` (token similarity over recent open
+  incidents, limited to those the caller may see).
 
 ## Conventions
 

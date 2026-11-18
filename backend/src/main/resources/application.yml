@@ -56,6 +56,9 @@ itsm:
   notifications:
     # {id} is replaced by the incident id; the email prefixes it with itsm.frontend-base-url.
     incident-link: ${ITSM_NOTIFICATION_LINK:/incidents/{id}}
+  assignment:
+    # skill-least-loaded (default) or round-robin; an unknown value logs a warning and uses the default.
+    strategy: ${ASSIGNMENT_STRATEGY:skill-least-loaded}
   frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:4321}
 
 management:
