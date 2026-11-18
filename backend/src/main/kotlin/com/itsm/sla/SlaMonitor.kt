@@ -107,7 +107,7 @@ class SlaMonitor(
             if (now.isAfter(w.due) && w.type !in existing) {
                 events.saveAndFlush(SlaEvent(id, w.type, now)) // a unique violation surfaces here, before anything is published
                 publisher.publishEvent(SlaBreached(id, null, w.type.name))
-                escalation.escalate(EscalationContext(incident, w.type))
+                escalation.escalate(EscalationContext(incident, w.type, now))
                 count++
             }
         }

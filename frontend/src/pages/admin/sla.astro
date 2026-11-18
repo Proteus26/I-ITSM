@@ -1,0 +1,231 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Alert from '../../components/Alert.astro';
+import FormField from '../../components/FormField.astro';
+import { backendFor } from '../../lib/backend';
+import { DEFAULT_WARNING_PCT, MAX_SLA_MINUTES, PRIORITY_OPTIONS, formatMinutes, groupSlaPolicies, parseCreateSlaPolicy, parseSlaTimes } from '../../lib/adminConfig';
+import type { SlaPolicy } from '../../lib/adminTypes';
+import { formErrorState, formString, lookupNotice, parseIntField } from '../../lib/forms';
+import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
+import { handleLoadError } from '../../lib/loadError';
+import type { AdminService } from '../../lib/incidentTypes';
+
+const api = backendFor(Astro.cookies);
+const NOTICES: Record<string, string> = { created: 'Override created.', updated: 'SLA policy saved.', deleted: 'Override deleted.' };
+const notice = Astro.request.method === 'GET' ? lookupNotice(NOTICES, Astro.url.searchParams.get('notice')) : undefined;
+
+let error: string | null = null;
+let fieldErrors: Record<string, string> = {};
+/** Which form the errors belong to: "create" or the id of the edited policy. */
+let failedForm = '';
+let shown: Record<string, string> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  shown = Object.fromEntries([...form.entries()].filter((e): e is [string, string] => typeof e[1] === 'string'));
+  const policyId = parseIntField(formString(form, 'policyId'), { min: 1 }).value;
+  try {
+    const result = await dispatchIntent<Response | undefined>(form, {
+      create: async () => {
+        const parsed = parseCreateSlaPolicy(form);
+        if (!parsed.ok) {
+          failedForm = 'create';
+          fieldErrors = parsed.errors;
+          error = 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        failedForm = 'create';
+        await api.createSlaPolicy(parsed.value);
+        return Astro.redirect('/admin/sla?notice=created');
+      },
+      update: async () => {
+        failedForm = String(policyId ?? '');
+        const parsed = parseSlaTimes(form, true);
+        if (policyId === undefined || !parsed.ok) {
+          fieldErrors = parsed.ok ? {} : parsed.errors;
+          error = policyId === undefined ? 'Invalid request.' : 'Please fix the highlighted fields.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.updateSlaPolicy(policyId, parsed.value);
+        return Astro.redirect('/admin/sla?notice=updated');
+      },
+      delete: async () => {
+        failedForm = String(policyId ?? '');
+        if (policyId === undefined) {
+          error = 'Invalid request.';
+          Astro.response.status = 400;
+          return;
+        }
+        await api.deleteSlaPolicy(policyId);
+        return Astro.redirect('/admin/sla?notice=deleted');
+      },
+    });
+    if (!result.known) {
+      error = UNKNOWN_INTENT_MESSAGE;
+      Astro.response.status = 400;
+    } else if (result.value) {
+      return result.value;
+    }
+  } catch (e) {
+    const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+    if (r instanceof Response) return r;
+    const state = formErrorState(r);
+    fieldErrors = state.fieldErrors;
+    error = state.message;
+    Astro.response.status = r.status;
+  }
+}
+
+let policies: SlaPolicy[] = [];
+let services: AdminService[] = [];
+let loadError: string | null = null;
+try {
+  [policies, services] = await Promise.all([api.slaPolicies(), api.adminServices()]);
+} catch (e) {
+  const r = await handleLoadError(e, Astro);
+  if (r instanceof Response) return r;
+  loadError = r.userMessage;
+  Astro.response.status = r.status;
+}
+const { defaults, groups } = groupSlaPolicies(policies);
+const serviceOptions = [{ value: '', label: 'Choose a service' }, ...services.filter((s) => s.active).map((s) => ({ value: String(s.id), label: s.name }))];
+const createErrors = failedForm === 'create' ? fieldErrors : {};
+const val = (p: SlaPolicy, field: 'responseMinutes' | 'resolutionMinutes' | 'warningThresholdPct') =>
+  failedForm === String(p.id) && shown[field] !== undefined ? shown[field] : String(p[field]);
+const FIELDS = [
+  { name: 'responseMinutes', label: 'Response (min)', max: MAX_SLA_MINUTES, min: 1 },
+  { name: 'resolutionMinutes', label: 'Resolution (min)', max: MAX_SLA_MINUTES, min: 1 },
+  { name: 'warningThresholdPct', label: 'Warn at (%)', max: 99, min: 1 },
+] as const;
+---
+
+<Layout title="SLA policies · I-ITSM">
+  <h1>SLA policies</h1>
+  <p class="muted">
+    How quickly an incident must be answered (acknowledged) and resolved, per priority. A service can override the default for a
+    priority. Changes apply to incidents whose deadlines are calculated afterwards (new or re-prioritised incidents); deadlines already set are not changed.
+  </p>
+  {notice && <Alert kind="success">{notice}</Alert>}
+  {error && <Alert kind="error">{error}</Alert>}
+  {loadError && <Alert kind="error">{loadError}</Alert>}
+
+  {
+    !loadError && (
+      <>
+        <section aria-labelledby="h-defaults">
+          <h2 id="h-defaults">Default policies</h2>
+          <div class="table-wrap" role="region" aria-label="Default SLA policies" tabindex="0">
+            <table class="stack">
+              <caption class="sr-only">Default SLA policies</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Priority</th>
+                  {FIELDS.map((f) => <th scope="col">{f.label}</th>)}
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {defaults.map((p) => (
+                  <tr>
+                    <th scope="row" data-label="Priority">{p.priority}</th>
+                    {FIELDS.map((f) => (
+                      <td data-label={f.label}>
+                        <label class="sr-only" for={`p${p.id}-${f.name}`}>{f.label} for {p.priority}</label>
+                        <input id={`p${p.id}-${f.name}`} class="num" type="number" name={f.name} form={`pf-${p.id}`} min={f.min} max={f.max} required value={val(p, f.name)} aria-invalid={failedForm === String(p.id) && fieldErrors[f.name] ? 'true' : undefined} />
+                        {failedForm === String(p.id) && fieldErrors[f.name] && <p class="error"><span class="sr-only">Error: </span>{fieldErrors[f.name]}</p>}
+                        <span class="muted human">{f.name !== 'warningThresholdPct' && formatMinutes(p[f.name])}</span>
+                      </td>
+                    ))}
+                    <td data-label="Actions">
+                      <form id={`pf-${p.id}`} method="post" action="/admin/sla" class="inline-form">
+                        <input type="hidden" name="intent" value="update" />
+                        <input type="hidden" name="policyId" value={String(p.id)} />
+                        <button class="btn btn-secondary btn-small" type="submit">Save</button>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section aria-labelledby="h-overrides">
+          <h2 id="h-overrides">Service overrides</h2>
+          {groups.length === 0 && <div class="card empty-state"><p>No service has its own SLA yet. All services use the defaults.</p></div>}
+          {
+            groups.map((g) => (
+              <div class="override-group">
+                <h3>{g.serviceName} <span class="muted">{g.serviceCode}</span></h3>
+                <div class="table-wrap" role="region" aria-label={`SLA overrides of ${g.serviceName}`} tabindex="0">
+                  <table class="stack">
+                    <caption class="sr-only">SLA overrides of {g.serviceName}</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Priority</th>
+                        {FIELDS.map((f) => <th scope="col">{f.label}</th>)}
+                        <th scope="col"><span class="sr-only">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.policies.map((p) => (
+                        <tr>
+                          <th scope="row" data-label="Priority">{p.priority}</th>
+                          {FIELDS.map((f) => (
+                            <td data-label={f.label}>
+                              <label class="sr-only" for={`p${p.id}-${f.name}`}>{f.label} for {g.serviceName} {p.priority}</label>
+                              <input id={`p${p.id}-${f.name}`} class="num" type="number" name={f.name} form={`pf-${p.id}`} min={f.min} max={f.max} required value={val(p, f.name)} aria-invalid={failedForm === String(p.id) && fieldErrors[f.name] ? 'true' : undefined} />
+                              {failedForm === String(p.id) && fieldErrors[f.name] && <p class="error"><span class="sr-only">Error: </span>{fieldErrors[f.name]}</p>}
+                              <span class="muted human">{f.name !== 'warningThresholdPct' && formatMinutes(p[f.name])}</span>
+                            </td>
+                          ))}
+                          <td data-label="Actions">
+                            <div class="inline-form">
+                              <form id={`pf-${p.id}`} method="post" action="/admin/sla" class="inline-form">
+                                <input type="hidden" name="intent" value="update" />
+                                <input type="hidden" name="policyId" value={String(p.id)} />
+                                <button class="btn btn-secondary btn-small" type="submit">Save</button>
+                              </form>
+                              <form method="post" action="/admin/sla" class="inline-form" data-confirm={`Delete the ${p.priority} override of ${g.serviceName}? The default policy will apply again.`}>
+                                <input type="hidden" name="intent" value="delete" />
+                                <input type="hidden" name="policyId" value={String(p.id)} />
+                                <button class="btn btn-danger btn-small" type="submit">Delete</button>
+                              </form>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
+          }
+        </section>
+
+        <section class="card card-md" aria-labelledby="h-new">
+          <h2 id="h-new">Add override</h2>
+          <form method="post" action="/admin/sla">
+            <p class="hint required-hint">* required</p>
+            <input type="hidden" name="intent" value="create" />
+            <FormField name="serviceId" label="Service" value={failedForm === 'create' ? (shown.serviceId ?? '') : ''} options={serviceOptions} error={createErrors.serviceId} required />
+            <FormField name="priority" label="Priority" value={failedForm === 'create' ? (shown.priority ?? 'P1') : 'P1'} options={PRIORITY_OPTIONS} error={createErrors.priority} required />
+            <FormField name="responseMinutes" label="Response time (minutes)" type="number" min={1} max={MAX_SLA_MINUTES} value={failedForm === 'create' ? (shown.responseMinutes ?? '') : ''} error={createErrors.responseMinutes} required />
+            <FormField name="resolutionMinutes" label="Resolution time (minutes)" type="number" min={1} max={MAX_SLA_MINUTES} value={failedForm === 'create' ? (shown.resolutionMinutes ?? '') : ''} error={createErrors.resolutionMinutes} required hint="Not shorter than the response time." />
+            <FormField name="warningThresholdPct" label="Warn at (% of the time)" type="number" min={1} max={99} value={failedForm === 'create' ? (shown.warningThresholdPct ?? '') : ''} error={createErrors.warningThresholdPct} hint={`Leave blank for ${DEFAULT_WARNING_PCT}.`} />
+            <button class="btn" type="submit">Add override</button>
+          </form>
+        </section>
+      </>
+    )
+  }
+</Layout>
+
+<style>
+  .num { width: 7rem; }
+  .human { display: block; font-size: 0.85rem; }
+  .override-group { margin-bottom: 1.5rem; }
+  .override-group h3 { margin-bottom: 0.5rem; }
+</style>

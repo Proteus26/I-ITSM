@@ -159,6 +159,15 @@ P2 15 min / 2 h, P3 1 h / 8 h, P4 4 h / 24 h; a service can override them) and a
 of the time and a breach when a deadline passes, publishing `SlaWarningRaised`, `SlaBreached` and `IncidentEscalated`.
 See [docs/p3.md](docs/p3.md) for the contracts and what is still open.
 
+**Escalation chain** (Technician, Team Lead, Administrator): when an unacknowledged incident misses its response deadline, the
+incident is reassigned by the system to the best available team lead (a technician of level `TEAM_LEAD`, preferably with the incident's
+category skill, least loaded, never the reporter or the current assignee) and `IncidentEscalated(level=TEAM_LEAD)`,
+`IncidentAssigned(strategy=escalation)` are published. Without a team lead, or on a P1/P2 resolution breach, the administrators are
+notified (`IncidentEscalated(level=ADMIN)`).
+
+**SLA policies** are managed with `GET`/`POST /api/admin/sla-policies`, `PATCH`/`DELETE /api/admin/sla-policies/{id}` (admin;
+defaults can be edited but not deleted; a duplicate service/priority is 409). A change only affects deadlines calculated afterwards.
+
 ## Configuration
 
 | Variable               | Used by  | Default                                  |
@@ -371,6 +380,10 @@ class IncidentService(private val currentUser: CurrentUser) {
   are never shown to users (`ApiError.userMessage`).
 - **Admin user management** (admins only): `/admin/users` (search, filter by role and status, paging), `/admin/users/new`, and
   `/admin/users/<id>` (edit details, activate or deactivate, reset password).
+- **Admin configuration** (admins only, under the "Admin" menu): `/admin/services` (create, edit, activate or deactivate IT services:
+  name, description, criticality, owner team), `/admin/sla` (edit the default response and resolution times per priority, add or delete
+  per-service overrides), `/admin/settings` (priority and assignment strategy), `/admin/categories`. On a technician's user page the
+  level (including Team lead), skills (checkboxes of the active categories), availability and maximum active incidents can be set.
 - **`?notice=` parameters**: after a successful action the pages redirect with a fixed code that is mapped to a message and never echoed:
   `/admin/users/<id>?notice=created|updated|reset`, `/account?changed=1`, and `/login?registered=1` (shown when automatic login after
   registering fails).

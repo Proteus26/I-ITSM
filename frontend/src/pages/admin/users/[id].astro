@@ -2,14 +2,17 @@
 import Layout from '../../../layouts/Layout.astro';
 import FormField from '../../../components/FormField.astro';
 import CheckboxField from '../../../components/CheckboxField.astro';
+import SkillPicker from '../../../components/SkillPicker.astro';
 import Alert from '../../../components/Alert.astro';
 import RoleBadge from '../../../components/RoleBadge.astro';
 import StatusBadge from '../../../components/StatusBadge.astro';
 import { backendFor } from '../../../lib/backend';
+import { skillsFromForm } from '../../../lib/adminConfig';
 import { formErrorState, formatDate, formatLogin, formString, confirmMismatch, LEVEL_OPTIONS, lookupNotice, parseActive } from '../../../lib/forms';
 import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../../lib/intent';
 import { handleLoadError } from '../../../lib/loadError';
 import { buildUserPatch, type UserForm } from '../../../lib/userPatch';
+import type { CategorySummary } from '../../../lib/incidentTypes';
 import type { UserResponse } from '../../../lib/types';
 
 const idParam = Astro.params.id ?? '';
@@ -24,9 +27,12 @@ const NOTICES: Record<string, string> = { created: 'User created.', updated: 'Ch
 const notice = lookupNotice(NOTICES, Astro.url.searchParams.get('notice'));
 
 let user: UserResponse | null = null;
+/** Active categories for the skill checkboxes; null when they could not be loaded (a text field is shown then). */
+let categories: CategorySummary[] | null = null;
 let error: string | null = null;
 try {
   user = await api.getUser(id);
+  if (user.role === 'TECHNICIAN') categories = await api.listCategories().catch(() => null);
 } catch (e) {
   const r = await handleLoadError(e, Astro);
   if (r instanceof Response) return r;
@@ -84,7 +90,7 @@ if (user && Astro.request.method === 'POST') {
           level: formString(form, 'level'),
           maxActiveIncidents: formString(form, 'maxActiveIncidents'),
           available: form.get('available') !== null,
-          skills: formString(form, 'skills'),
+          skills: skillsFromForm(form),
         };
         const { patch, fieldErrors: invalid } = buildUserPatch(user!, shown);
         if (Object.keys(invalid).length > 0) {
@@ -161,7 +167,7 @@ if (user && Astro.request.method === 'POST') {
                 <>
                   <FormField name="level" label="Level" value={shown.level} error={fieldErrors.level} options={LEVEL_OPTIONS} />
                   <FormField name="maxActiveIncidents" label="Max active incidents" type="number" min={1} value={shown.maxActiveIncidents} error={fieldErrors.maxActiveIncidents} />
-                  <FormField name="skills" label="Skills" value={shown.skills} error={fieldErrors.skills} hint="Comma-separated category codes." />
+                  <SkillPicker categories={categories} selected={shown.skills} error={fieldErrors.skills} />
                   <CheckboxField name="available" label="Available for assignment" checked={shown.available} error={fieldErrors.available} />
                 </>
               )
