@@ -1,5 +1,6 @@
 package com.itsm.search
 
+import com.itsm.auth.AuthenticatedUser
 import com.itsm.auth.CurrentUser
 import com.itsm.common.exception.InvalidSearchException
 import com.itsm.common.toPageResponse
@@ -7,9 +8,9 @@ import com.itsm.incident.Incident
 import com.itsm.incident.IncidentRepository
 import com.itsm.incident.IncidentStatus
 import com.itsm.reference.ItServiceRefRepository
-import com.itsm.sla.Priority
+import com.itsm.incident.Priority
 import com.itsm.user.PageResponse
-import com.itsm.user.User
+
 import com.itsm.user.UserRepository
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
@@ -50,7 +51,7 @@ class IncidentSearchService(
     private val services: ItServiceRefRepository,
 ) {
     @Transactional(readOnly = true)
-    fun search(criteria: IncidentSearchCriteria, pageable: Pageable, viewer: User): Page<IncidentSearchResult> {
+    fun search(criteria: IncidentSearchCriteria, pageable: Pageable, viewer: AuthenticatedUser): Page<IncidentSearchResult> {
         val from = criteria.from
         val to = criteria.to
         if (from != null && to != null && from.isAfter(to)) {

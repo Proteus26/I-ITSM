@@ -4,7 +4,7 @@ import Alert from '../../components/Alert.astro';
 import { backendFor } from '../../lib/backend';
 import { formatDateTime, PAGE_BOUNDS, parseOptionalInt, pluralize } from '../../lib/forms';
 import { handleLoadError } from '../../lib/loadError';
-import { AUDIT_ACTIONS, cleanAuditQuery, toQueryString } from '../../lib/p4';
+import { AUDIT_ACTIONS, cleanAuditQuery, humanize, toQueryString } from '../../lib/p4';
 import type { AuditEntry } from '../../lib/p4Types';
 import type { PageResponse } from '../../lib/types';
 
@@ -34,7 +34,7 @@ function pageHref(p: number): string {
   return `/admin/audit?${toQueryString(query, p)}`;
 }
 
-const label = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+const label = humanize;
 ---
 
 <Layout title="Audit log · I-ITSM">

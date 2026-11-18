@@ -26,6 +26,7 @@
       link.setAttribute('aria-label', unread === 0 ? 'Notifications' : `Notifications, ${unread} unread`);
     };
 
+    // Pages without JS still have the bell as a plain link to /notifications; the badge is an enhancement.
     const refresh = async () => {
       try {
         const res = await fetch('/api/notifications/unread-count', { credentials: 'same-origin' });
@@ -33,7 +34,10 @@
           stopped = true; // logged out: stop polling and streaming
           return;
         }
-        if (res.ok) show((await res.json()).unread);
+        if (res.ok) {
+          const { unread } = await res.json();
+          if (Number.isInteger(unread) && unread >= 0) show(unread);
+        }
       } catch {
         // offline or backend down: keep the last value
       }
@@ -43,6 +47,7 @@
       let event = 'message';
       let data = '';
       for (const line of block.split('\n')) {
+        if (line.startsWith(':')) continue; // comment / heartbeat
         if (line.startsWith('event:')) event = line.slice(6).trim();
         else if (line.startsWith('data:')) data += line.slice(5).trim();
       }
@@ -59,24 +64,26 @@
     const listen = async () => {
       let delay = 3000;
       while (!stopped) {
+        const startedAt = Date.now();
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
         try {
           const res = await fetch('/api/notifications/stream', {
             credentials: 'same-origin',
             headers: { Accept: 'text/event-stream' },
           });
-          if (res.status === 401) {
+          if (res.status === 401 || res.status === 403) {
             stopped = true;
             return;
           }
           if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
-          delay = 3000;
-          const reader = res.body.getReader();
+          reader = res.body.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
           for (;;) {
             const { value, done } = await reader.read();
             if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
+            if (buffer.length > 1_000_000) throw new Error('event too large');
             let end: number;
             while ((end = buffer.indexOf('\n\n')) >= 0) {
               handle(buffer.slice(0, end));
@@ -85,15 +92,20 @@
           }
         } catch {
           // fall through and retry
+        } finally {
+          await reader?.cancel().catch(() => undefined);
         }
+        if (stopped) return;
+        if (Date.now() - startedAt > 10000) delay = 3000; // it was healthy for a while: start the backoff over
         await new Promise((resolve) => setTimeout(resolve, delay));
         delay = Math.min(delay * 2, 60000);
       }
     };
 
     void refresh();
-    setInterval(() => {
-      if (!stopped) void refresh();
+    const timer = setInterval(() => {
+      if (stopped) clearInterval(timer);
+      else void refresh();
     }, 30000);
     void listen();
     // The notifications page tells the bell when the count changed there (mark as read).

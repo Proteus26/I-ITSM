@@ -78,7 +78,29 @@ export function toQueryString(query: object, page?: number): string {
   return sp.toString();
 }
 
-/** Only links that stay inside the app are rendered as links (a notification link comes from the backend). */
-export function safeInternalLink(link: string | null): string | null {
-  return link && link.startsWith('/') && !link.startsWith('//') ? link : null;
+// eslint-disable-next-line no-control-regex
+const UNSAFE_LINK_CHARS = /[\\\u0000-\u001f\u007f\s]/;
+const LINK_BASE = 'http://link.invalid';
+
+/**
+ * Only links that stay inside the app are rendered as links (a notification link comes from the backend).
+ * Accepts a path that starts with a single `/`; rejects `//host`, `/\host`, `javascript:`, absolute URLs,
+ * and anything with backslashes, whitespace or control characters (browsers strip tabs and newlines, so
+ * `/\t/evil.com` would otherwise become `//evil.com`).
+ */
+export function safeInternalLink(link: string | null | undefined): string | null {
+  if (typeof link !== 'string' || !link.startsWith('/') || link.startsWith('//')) return null;
+  if (UNSAFE_LINK_CHARS.test(link)) return null;
+  try {
+    const u = new URL(link, LINK_BASE);
+    if (u.origin !== LINK_BASE) return null;
+  } catch {
+    return null;
+  }
+  return link;
+}
+
+/** `STATUS_CHANGED` -> `Status changed`. */
+export function humanize(code: string): string {
+  return code.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }

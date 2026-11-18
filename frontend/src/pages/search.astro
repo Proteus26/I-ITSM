@@ -4,7 +4,7 @@ import Alert from '../components/Alert.astro';
 import { backendFor } from '../lib/backend';
 import { formatDateTime, PAGE_BOUNDS, parseOptionalInt, pluralize } from '../lib/forms';
 import { handleLoadError } from '../lib/loadError';
-import { cleanSearchQuery, SORT_OPTIONS, toQueryString } from '../lib/p4';
+import { cleanSearchQuery, humanize, SORT_OPTIONS, toQueryString } from '../lib/p4';
 import { INCIDENT_STATUSES, PRIORITIES, SLA_STATUSES, type IncidentSearchResult } from '../lib/p4Types';
 import type { PageResponse } from '../lib/types';
 
@@ -36,7 +36,7 @@ function pageHref(p: number): string {
   return `/search?${toQueryString(query, p)}`;
 }
 
-const label = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+const label = humanize;
 ---
 
 <Layout title="Search incidents · I-ITSM">

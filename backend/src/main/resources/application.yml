@@ -16,6 +16,16 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  mail:
+    # Only used when itsm.mail.gateway=smtp. Nothing connects at startup, so a missing SMTP server is harmless.
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.connectiontimeout: 3000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
 
 server:
   port: ${PORT:8080}
@@ -36,7 +46,23 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4321}
 
+itsm:
+  mail:
+    # logging (default) only writes emails to the log; smtp sends them through spring.mail.*
+    gateway: ${ITSM_MAIL_GATEWAY:logging}
+    from: ${ITSM_MAIL_FROM:itsm@localhost}
+    # Send email on a background thread pool so a slow mail server never delays requests.
+    async: ${ITSM_MAIL_ASYNC:true}
+  notifications:
+    # {id} is replaced by the incident id; the email prefixes it with itsm.frontend-base-url.
+    incident-link: ${ITSM_NOTIFICATION_LINK:/incidents/{id}}
+  frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:4321}
+
 management:
+  health:
+    mail:
+      # The SMTP server is optional; it must not turn /actuator/health DOWN.
+      enabled: false
   endpoints:
     web:
       exposure:

@@ -49,7 +49,7 @@ class NotificationController(
     private val hub: NotificationStream,
     private val currentUser: CurrentUser,
 ) {
-    private fun userId(): Long = requireNotNull(currentUser.get().id)
+    private fun userId(): Long = currentUser.get().id
 
     @GetMapping
     fun list(

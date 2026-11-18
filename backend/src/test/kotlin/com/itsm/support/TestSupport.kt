@@ -1,14 +1,14 @@
 package com.itsm.support
 
+import com.itsm.category.CategoryRepository
+import com.itsm.incident.Actor
+import com.itsm.incident.Impact
 import com.itsm.incident.Incident
 import com.itsm.incident.IncidentRepository
 import com.itsm.incident.IncidentStatus
+import com.itsm.incident.Priority
+import com.itsm.incident.Urgency
 import com.itsm.notification.channel.EmailGateway
-import com.itsm.reference.ItServiceRef
-import com.itsm.reference.ItServiceRefRepository
-import com.itsm.reference.SlaEventRef
-import com.itsm.reference.SlaEventRefRepository
-import com.itsm.sla.Priority
 import com.itsm.user.Administrator
 import com.itsm.user.Employee
 import com.itsm.user.Role
@@ -46,15 +46,14 @@ data class Seed(
 )
 
 /**
- * Test fixtures. Only the rows created here are deleted again, so the helper is safe to use next to other tests'
- * data. The audit_log, notifications and sla_events tables belong to P4 and are emptied completely.
+ * Test fixtures. Only rows created here (or caused by them: notifications, audit rows and SLA events of these
+ * incidents and users) are deleted again, so the helper is safe to use next to other tests' data.
  */
 @Component
 class TestData(
     private val users: UserRepository,
     private val incidents: IncidentRepository,
-    private val services: ItServiceRefRepository,
-    private val slaEvents: SlaEventRefRepository,
+    private val categories: CategoryRepository,
     private val jdbc: JdbcTemplate,
 ) {
     private val userIds = mutableListOf<Long>()
@@ -62,53 +61,77 @@ class TestData(
     private val serviceIds = mutableListOf<Long>()
 
     fun reset() {
-        listOf("notifications", "audit_log", "sla_events").forEach { jdbc.update("delete from $it") }
-        incidentIds.forEach { jdbc.update("delete from incidents where id = ?", it) }
-        serviceIds.forEach { jdbc.update("delete from it_services where id = ?", it) }
+        incidentIds.forEach {
+            jdbc.update("delete from notifications where incident_id = ?", it)
+            jdbc.update("delete from audit_log where incident_id = ?", it)
+            jdbc.update("delete from incidents where id = ?", it)   // sla_events cascade
+        }
         userIds.forEach {
+            jdbc.update("delete from notifications where recipient_id = ?", it)
+            jdbc.update("delete from audit_log where actor_id = ?", it)
             jdbc.update("delete from technician_skills where technician_id = ?", it)
             jdbc.update("delete from users where id = ?", it)
         }
+        serviceIds.forEach { jdbc.update("delete from it_services where id = ?", it) }
         incidentIds.clear(); serviceIds.clear(); userIds.clear()
     }
 
     /** Builds the right User subclass. The password hash is a dummy: these users never log in. */
-    fun user(name: String, role: Role, active: Boolean = true): User {
+    fun user(name: String, role: Role, active: Boolean = true, passwordHash: String = "dummy-hash"): User {
         val email = "$name@example.test"
         val fullName = name.replaceFirstChar { it.uppercase() }
         val user: User = when (role) {
-            Role.EMPLOYEE -> Employee(email, fullName, "dummy-hash")
-            Role.TECHNICIAN -> Technician(email, fullName, "dummy-hash")
-            Role.ADMIN -> Administrator(email, fullName, "dummy-hash")
+            Role.EMPLOYEE -> Employee(email, fullName, passwordHash)
+            Role.TECHNICIAN -> Technician(email, fullName, passwordHash)
+            Role.ADMIN -> Administrator(email, fullName, passwordHash)
         }
         if (!active) user.deactivate()
         return users.save(user).also { userIds += it.uid }
     }
 
     /**
-     * ADAPT THIS ONE FUNCTION to P2's real Incident (constructor or factory, required columns such as impact and
-     * urgency). Everything else in the tests goes through it. The properties the tests rely on are number, title,
-     * description, reporterId, categoryCode, serviceId, assigneeId, priority, status, createdAt, resolvedAt.
+     * Builds a real incident and walks it through the lifecycle with the domain methods until it reaches [status]
+     * (NEW, CLASSIFIED, ASSIGNED, ACKNOWLEDGED, IN_PROGRESS or RESOLVED). Every step happens at [createdAt]
+     * except the resolution, which is stamped [resolvedAt] (default: [createdAt]). Any status past NEW needs a
+     * category; "SOFTWARE" is used when none is given. [assignee] is needed from ASSIGNED on.
      */
     fun incident(
         number: String, title: String, reporter: User,
-        description: String = "", status: IncidentStatus = IncidentStatus.NEW, priority: Priority? = null,
+        description: String = "Something is wrong", status: IncidentStatus = IncidentStatus.NEW, priority: Priority? = null,
         category: String? = null, serviceId: Long? = null, assignee: User? = null,
         createdAt: Instant = Instant.now(), resolvedAt: Instant? = null,
-    ): Incident = incidents.save(
-        Incident(
+    ): Incident {
+        val incident = Incident(
             number = number, title = title, description = description, reporterId = reporter.uid,
-            categoryCode = category, serviceId = serviceId, assigneeId = assignee?.uid,
-            priority = priority, status = status, createdAt = createdAt, resolvedAt = resolvedAt,
-        ),
-    ).also { incidentIds += requireNotNull(it.id) }
+            impact = Impact.TEAM, urgency = Urgency.MEDIUM, affectedUsers = 1,
+            serviceId = serviceId, categoryCode = category, createdAt = createdAt,
+        )
+        val order = listOf(
+            IncidentStatus.NEW, IncidentStatus.CLASSIFIED, IncidentStatus.ASSIGNED,
+            IncidentStatus.ACKNOWLEDGED, IncidentStatus.IN_PROGRESS, IncidentStatus.RESOLVED,
+        )
+        val target = order.indexOf(status)
+        require(target >= 0) { "TestData.incident cannot build status $status" }
+        val techActor = assignee?.let { Actor(it.uid, Role.TECHNICIAN) }
 
-    fun slaEvent(incidentId: Long, type: String) {
-        slaEvents.save(SlaEventRef(incidentId = incidentId, type = type))
+        if (target >= 1) {
+            val code = category ?: "SOFTWARE"
+            incident.classify(categories.findById(code.uppercase()).orElseThrow(), Actor.SYSTEM, createdAt)
+        }
+        if (target >= 2) incident.assign(requireNotNull(assignee) { "an assignee is needed from ASSIGNED on" }.uid, Actor.SYSTEM, createdAt)
+        if (target >= 3) incident.transitionTo(IncidentStatus.ACKNOWLEDGED, techActor!!, createdAt)
+        if (target >= 4) incident.transitionTo(IncidentStatus.IN_PROGRESS, techActor!!, createdAt)
+        if (target >= 5) incident.resolve("Fixed it", null, techActor!!, resolvedAt ?: createdAt)
+        if (priority != null) incident.applyPriority(priority, priority.ordinal.toDouble(), createdAt)
+        return incidents.saveAndFlush(incident).also { incidentIds += requireNotNull(it.id) }
     }
 
-    private fun service(id: Long, name: String): Long {
-        services.save(ItServiceRef(id, name))
+    fun slaEvent(incidentId: Long, type: String) {
+        jdbc.update("insert into sla_events (incident_id, type) values (?, ?)", incidentId, type)
+    }
+
+    private fun service(name: String): Long {
+        val id = jdbc.queryForObject("insert into it_services (name) values (?) returning id", Long::class.javaObjectType, name)!!
         serviceIds += id
         return id
     }
@@ -116,20 +139,20 @@ class TestData(
     /**
      *  i1 INC-000001 "Payment app down"   IN_PROGRESS P1 APPLICATION svc1 T1 / E1  3 days ago  (resolution breach)
      *  i2 INC-000002 "VPN cannot connect" ASSIGNED    P2 NETWORK     svc2 T2 / E2  2 days ago  (warning only)
-     *  i3 INC-000003 "Email delayed"      RESOLVED    P3 EMAIL       svc3 T1 / E1  1 day ago   (resolved after 120 min)
+     *  i3 INC-000003 "Email delayed"      RESOLVED    P3 SOFTWARE      svc3 T1 / E1  1 day ago   (resolved after 120 min)
      *  i4 INC-000004 "Laptop is slow"     NEW         P4 HARDWARE    none -  / E2  now
      */
-    fun seed(): Seed {
+    fun seed(passwordHash: String = "dummy-hash"): Seed {
         val base = Instant.now().truncatedTo(ChronoUnit.SECONDS)
-        val admin = user("admin", Role.ADMIN)
-        val e1 = user("emp1", Role.EMPLOYEE)
-        val e2 = user("emp2", Role.EMPLOYEE)
-        val t1 = user("tech1", Role.TECHNICIAN)
-        val t2 = user("tech2", Role.TECHNICIAN)
-        val t3 = user("tech3", Role.TECHNICIAN)
-        val s1 = service(9001, "Payment")
-        val s2 = service(9002, "VPN")
-        val s3 = service(9003, "Email")
+        val admin = user("admin", Role.ADMIN, passwordHash = passwordHash)
+        val e1 = user("emp1", Role.EMPLOYEE, passwordHash = passwordHash)
+        val e2 = user("emp2", Role.EMPLOYEE, passwordHash = passwordHash)
+        val t1 = user("tech1", Role.TECHNICIAN, passwordHash = passwordHash)
+        val t2 = user("tech2", Role.TECHNICIAN, passwordHash = passwordHash)
+        val t3 = user("tech3", Role.TECHNICIAN, passwordHash = passwordHash)
+        val s1 = service("Payment")
+        val s2 = service("VPN")
+        val s3 = service("Email")
 
         val i1 = incident(
             "INC-000001", "Payment app down", e1, "Checkout fails for every customer",
@@ -142,7 +165,7 @@ class TestData(
         val created3 = base.minus(1, ChronoUnit.DAYS)
         val i3 = incident(
             "INC-000003", "Email delayed", e1, "Messages arrive an hour late",
-            IncidentStatus.RESOLVED, Priority.P3, "EMAIL", s3, t1, created3, created3.plus(120, ChronoUnit.MINUTES),
+            IncidentStatus.RESOLVED, Priority.P3, "SOFTWARE", s3, t1, created3, created3.plus(120, ChronoUnit.MINUTES),
         )
         val i4 = incident(
             "INC-000004", "Laptop is slow", e2, "Takes ten minutes to boot",

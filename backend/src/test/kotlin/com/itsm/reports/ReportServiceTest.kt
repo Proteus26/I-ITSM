@@ -1,18 +1,25 @@
 package com.itsm.reports
 
-import com.itsm.sla.Priority
+import com.itsm.incident.Priority
 import com.itsm.support.TestData
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
+import com.itsm.TestcontainersConfiguration
+import org.junit.jupiter.api.AfterEach
 
 @SpringBootTest
+@Import(TestcontainersConfiguration::class)
 class ReportServiceTest @Autowired constructor(
     private val data: TestData,
     private val reports: ReportService,
 ) {
+    @AfterEach
+    fun cleanUp() = data.reset()
+
     @BeforeEach
     fun seed() {
         data.reset()

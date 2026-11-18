@@ -29,6 +29,7 @@ import type {
   TrendPoint,
   WorkloadRow,
 } from './p4Types';
+import { toQueryString } from './p4';
 
 export const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -40,11 +41,7 @@ export function backendTimeoutMs(env: Record<string, string | undefined> = proce
 
 /** `?a=1&b=2` for the defined values of `params`, or an empty string. */
 function queryString(params: object): string {
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== '') sp.set(k, String(v));
-  }
-  const qs = sp.toString();
+  const qs = toQueryString(params);
   return qs ? `?${qs}` : '';
 }
 
@@ -224,7 +221,7 @@ export class BackendClient {
   }
 
   reportTrend(days = 30): Promise<TrendPoint[]> {
-    return this.request('GET', `/api/reports/trend?days=${days}`);
+    return this.request('GET', `/api/reports/trend${queryString({ days })}`);
   }
 }
 

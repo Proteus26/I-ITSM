@@ -145,6 +145,8 @@ CI (`.github/workflows/ci.yml`) runs the same steps on every push and pull reque
 | `JWT_TTL`              | backend  | `8h`                                     |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW` | backend | `5` / `15m` (failed logins per email before 429) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | backend | none for `bootRun`; `admin@itsm.local` / `ChangeMe123!` in docker compose |
+| `ITSM_MAIL_GATEWAY` / `MAIL_HOST` / `MAIL_PORT` | backend | `logging` / `localhost` / `1025`; set the gateway to `smtp` to send real email (see [docs/p4.md](docs/p4.md) for all notification settings) |
+| `FRONTEND_BASE_URL`    | backend  | `http://localhost:4321`; prefix for links in notification emails |
 | `API_URL`              | frontend | `http://localhost:8080`                  |
 | `BACKEND_TIMEOUT_MS`   | frontend | `5000`; how long a page waits for the backend before treating it as unreachable |
 | `COOKIE_SECURE`        | frontend | `false`; set `true` when served over HTTPS (adds `Secure` to the session cookie) |

@@ -1,6 +1,5 @@
 ---
 // A small Chart.js chart. The data is rendered by the server; the chart itself is drawn in the browser.
-// Needs the dependency:  npm install chart.js
 // The same numbers are also available as a table (for screen readers and for anyone who prefers numbers).
 interface Props {
   title: string;
@@ -54,7 +53,13 @@ const config = JSON.stringify({ kind, labels, values, series });
   const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2556d9';
 
   document.querySelectorAll<HTMLCanvasElement>('canvas[data-chart]').forEach((canvas) => {
-    const { kind, labels, values, series } = JSON.parse(canvas.dataset.chart ?? '{}');
+    let cfg;
+    try {
+      cfg = JSON.parse(canvas.dataset.chart ?? '');
+    } catch {
+      return; // the table below still shows the numbers
+    }
+    const { kind, labels, values, series } = cfg;
     new Chart(canvas, {
       type: kind,
       data: {

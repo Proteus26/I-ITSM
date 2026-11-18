@@ -2,7 +2,7 @@ package com.itsm.reports
 
 import com.itsm.incident.IncidentStatus
 import com.itsm.reference.SlaEventRef
-import com.itsm.sla.Priority
+import com.itsm.incident.Priority
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
 import org.springframework.security.access.prepost.PreAuthorize

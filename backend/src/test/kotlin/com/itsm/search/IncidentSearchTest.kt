@@ -1,25 +1,33 @@
 package com.itsm.search
 
 import com.itsm.incident.IncidentStatus
-import com.itsm.sla.Priority
+import com.itsm.incident.Priority
 import com.itsm.support.Seed
 import com.itsm.support.TestData
 import com.itsm.support.uid
+import com.itsm.auth.AuthenticatedUser
 import com.itsm.user.User
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
+import com.itsm.TestcontainersConfiguration
+import org.junit.jupiter.api.AfterEach
 import org.springframework.data.domain.PageRequest
 import java.time.ZoneOffset
 
 @SpringBootTest
+@Import(TestcontainersConfiguration::class)
 class IncidentSearchTest @Autowired constructor(
     private val data: TestData,
     private val search: IncidentSearchService,
 ) {
     private lateinit var s: Seed
+
+    @AfterEach
+    fun cleanUp() = data.reset()
 
     @BeforeEach
     fun seed() {
@@ -28,7 +36,7 @@ class IncidentSearchTest @Autowired constructor(
     }
 
     private fun numbers(criteria: IncidentSearchCriteria, viewer: User = s.admin): List<String> =
-        search.search(criteria, PageRequest.of(0, 50), viewer).content.map { it.number }
+        search.search(criteria, PageRequest.of(0, 50), AuthenticatedUser(viewer.uid, viewer.email, viewer.role)).content.map { it.number }
 
     @Test
     fun `each filter works on its own`() {

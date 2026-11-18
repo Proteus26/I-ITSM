@@ -1,14 +1,14 @@
 package com.itsm.audit
 
+import com.itsm.auth.AuthenticatedUser
 import com.itsm.auth.CurrentUser
+import com.itsm.auth.UnauthorizedOperationException
 import com.itsm.common.exception.InvalidSearchException
 import com.itsm.common.toPageResponse
 import com.itsm.incident.Actor
 import com.itsm.incident.IncidentNotFoundException
 import com.itsm.incident.IncidentRepository
-import com.itsm.incident.UnauthorizedOperationException
 import com.itsm.user.PageResponse
-import com.itsm.user.User
 import jakarta.persistence.criteria.Root
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Pageable
@@ -33,7 +33,7 @@ class AuditQueryService(
      * and the incident detail page can never disagree.
      */
     @Transactional(readOnly = true)
-    fun history(incidentId: Long, viewer: User): List<AuditEntryDto> {
+    fun history(incidentId: Long, viewer: AuthenticatedUser): List<AuditEntryDto> {
         val incident = incidents.findById(incidentId).orElseThrow { IncidentNotFoundException(incidentId) }
         if (!incident.isVisibleTo(Actor.of(viewer))) {
             throw UnauthorizedOperationException("You cannot view this incident")

@@ -13,11 +13,15 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
+import com.itsm.TestcontainersConfiguration
+import org.junit.jupiter.api.AfterEach
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 
 @SpringBootTest(properties = ["itsm.mail.async=false"])   // send email on the test thread
+@Import(TestcontainersConfiguration::class)
 class NotificationFlowTest @Autowired constructor(
     private val data: TestData,
     private val publisher: ApplicationEventPublisher,
@@ -26,6 +30,9 @@ class NotificationFlowTest @Autowired constructor(
     private val audit: AuditLogRepository,
     private val emails: RecordingEmailGateway,
 ) {
+    @AfterEach
+    fun cleanUp() = data.reset()
+
     @BeforeEach
     fun reset() {
         data.reset()
@@ -45,7 +52,7 @@ class NotificationFlowTest @Autowired constructor(
         }
 
         // In-app channel: exactly the technician and the reporter. Not the admin who did it, not a bystander.
-        val stored = notifications.findAll()
+        val stored = notifications.findAll().filter { it.incidentId == incident.id }
         assertThat(stored.map { it.recipientId }).containsExactlyInAnyOrder(reporter.uid, tech.uid)
         assertThat(stored.first { it.recipientId == tech.uid }.title).contains("assigned to you")
         assertThat(stored.map { it.recipientId }).doesNotContain(admin.uid, bystander.uid)
@@ -68,8 +75,8 @@ class NotificationFlowTest @Autowired constructor(
             }
         }
 
-        assertThat(notifications.count()).isZero()
+        assertThat(notifications.findAll().filter { it.incidentId == incident.id }).isEmpty()
         assertThat(emails.sent).isEmpty()
-        assertThat(audit.count()).isZero()   // the audit row rolled back together with the action
+        assertThat(audit.findByIncidentIdOrderByOccurredAtAscIdAsc(incident.id!!)).isEmpty()   // the audit row rolled back together with the action
     }
 }

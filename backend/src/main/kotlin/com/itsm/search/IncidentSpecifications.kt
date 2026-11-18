@@ -1,11 +1,11 @@
 package com.itsm.search
 
+import com.itsm.auth.AuthenticatedUser
 import com.itsm.incident.Incident
 import com.itsm.incident.IncidentStatus
 import com.itsm.reference.SlaEventRef
-import com.itsm.sla.Priority
+import com.itsm.incident.Priority
 import com.itsm.user.Role
-import com.itsm.user.User
 import jakarta.persistence.criteria.CriteriaBuilder
 import jakarta.persistence.criteria.CriteriaQuery
 import jakarta.persistence.criteria.Predicate
@@ -63,9 +63,9 @@ object IncidentSpecifications {
      * What the person searching is allowed to see: the same rule as Incident.isVisibleTo (reporter, assignee or
      * admin), expressed as a query so it can be applied inside the search.
      */
-    fun visibleTo(viewer: User): Specification<Incident> {
+    fun visibleTo(viewer: AuthenticatedUser): Specification<Incident> {
         if (viewer.role == Role.ADMIN) return Specification<Incident> { _, _, cb -> cb.conjunction() }
-        val id = requireNotNull(viewer.id)
+        val id = viewer.id
         return Specification<Incident> { root, _, cb ->
             cb.or(
                 cb.equal(root.get<Long>("assigneeId"), id),

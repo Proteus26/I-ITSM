@@ -10,17 +10,24 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
+import com.itsm.TestcontainersConfiguration
+import org.junit.jupiter.api.AfterEach
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 
 @SpringBootTest
+@Import(TestcontainersConfiguration::class)
 class AuditListenerTest @Autowired constructor(
     private val data: TestData,
     private val publisher: ApplicationEventPublisher,
     private val txManager: PlatformTransactionManager,
     private val audit: AuditLogRepository,
 ) {
+    @AfterEach
+    fun cleanUp() = data.reset()
+
     @BeforeEach
     fun reset() = data.reset()
 

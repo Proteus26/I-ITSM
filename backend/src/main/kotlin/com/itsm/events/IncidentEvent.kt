@@ -1,7 +1,7 @@
 package com.itsm.events
 
 import com.itsm.incident.IncidentStatus
-import com.itsm.sla.Priority
+import com.itsm.incident.Priority
 import java.time.Instant
 
 /**
