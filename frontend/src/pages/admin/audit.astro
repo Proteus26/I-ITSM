@@ -75,7 +75,7 @@ const label = humanize;
   {
     result && (
       <>
-        <p class="muted">{pluralize(result.totalElements, 'entry')}</p>
+        <p class="muted">{pluralize(result.totalElements, 'entry', 'entries')}</p>
         {result.content.length === 0 ? (
           <div class="card empty-state">
             <p>{filtered ? 'No audit entries match these filters.' : 'Nothing has been recorded yet.'}</p>
