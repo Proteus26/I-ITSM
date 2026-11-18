@@ -52,37 +52,38 @@ All passwords are `ChangeMe123!`.
 | Role | Email | Notes |
 |---|---|---|
 | Administrator | `admin@itsm.local` | created from `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
-| Employee | `employee@itsm.local` (Erin Employee) | `DEMO_DATA=true`; reporter of the five demo incidents |
-| Technician L2 | `tech1@itsm.local` (Tariq Network) | skills NETWORK, AUTHENTICATION, SECURITY |
-| Technician L1 | `tech2@itsm.local` (Sofia Software) | skills SOFTWARE, APPLICATION, DATABASE |
-| Technician TEAM_LEAD | `tech3@itsm.local` (Hugo Hardware) | skills HARDWARE, CLOUD, STORAGE |
+| Employee | `employee@itsm.local` (Erin, Finance) | `DEMO_DATA=true`; has a question waiting and a fix to confirm |
+| Employee | `employee2@itsm.local` (Marco, Marketing), `employee3@itsm.local` (Priya, Human Resources) | reporters of the other demo incidents |
+| Technician L2 | `tech1@itsm.local` (Tariq Network) | NETWORK, AUTHENTICATION, SECURITY |
+| Technician L1 | `tech2@itsm.local` (Sofia Software) | SOFTWARE, APPLICATION, DATABASE |
+| Technician TEAM_LEAD | `tech3@itsm.local` (Hugo Hardware) | HARDWARE, CLOUD, STORAGE; has a breached incident |
+| Technician L2 | `tech4@itsm.local` (Dana Database) | DATABASE, APPLICATION, CLOUD, SECURITY |
+| Technician L1 | `tech5@itsm.local` (Leo Helpdesk) | HARDWARE, SOFTWARE, AUTHENTICATION, NETWORK, STORAGE |
 
-New employees can register themselves at `/register`. The demo incidents are listed in
-[07-database-design.md](07-database-design.md), section 7.4.
-<!-- TODO(verify after merge): richer demo data is being added by a parallel track; update this table and the demo
-script below to match the final seeded accounts and incidents. -->
-
+New employees can register themselves at `/register`. The 24 demo incidents (all priorities and states, two SLA breaches,
+a few at-risk incidents, two weeks of history for the reports and four similar Payment incidents from the last hour) are
+described in [07-database-design.md](07-database-design.md), section 7.4.
 ## 10.3 Screens by role
 
 | Screen | URL | Who | What it does |
 |---|---|---|---|
 | Home | `/` | everyone | backend reachability |
 | Register, log in | `/register`, `/login` | guests | self-service employee accounts; login with throttling message |
-| Dashboard | `/dashboard` | all | role-specific cards: report, my incidents; technicians also "Assigned to me" and a profile card; administrators an administration card |
+| Dashboard | `/dashboard` | all | employee: open incidents, answers owed, fixes to confirm, latest incidents; technician: overdue and at-risk counts, queue by deadline, profile card; administrator: totals, SLA violations, SLA compliance, unassigned incidents needing action, technician workload |
 | Report an incident | `/incidents/new` | all | form with title, description, impact, urgency, affected users, service, category; live category suggestion ("Use it") and similar open incidents |
-| My / assigned incidents | `/incidents`, `/incidents?tab=assigned` | all / technicians | paged lists with status and priority badges; technicians default to the assigned tab |
-| Incident detail | `/incidents/[id]` | reporter, assignee, admin | all fields, SLA due times (overdue highlighted), notes thread, history timeline, and only the action forms the caller may use (acknowledge, start, request info, resume, resolve, verify, reopen, close, cancel, feedback; admins also classify and assign with ranked recommendations) |
+| My / assigned incidents | `/incidents`, `/incidents?tab=assigned` | all / technicians | paged lists with status and priority badges; technicians default to the assigned tab, which also shows their workload against capacity, overdue and at-risk marks and an availability switch |
+| Incident detail | `/incidents/[id]` | reporter, assignee, admin | all fields, SLA due times (overdue highlighted), notes thread, history timeline, related incidents (same cluster), an **Edit incident** form with the fields the caller may change (BR-08), and only the action forms the caller may use (acknowledge, start, request info, resume, resolve, verify, reopen, close, cancel, feedback; admins also classify and assign with ranked recommendations) |
 | Search | `/search` | all (own scope), admin (everything) | ten filters, sorting, paging |
 | Notifications | `/notifications` | all | list, unread filter, mark read, mark all read; bell in the header shows the unread count and updates live |
 | Account | `/account` | all | edit profile, change password, log out of all devices, previous login |
 | Users | `/admin/users`, `/admin/users/new`, `/admin/users/[id]` | admin | search, filter, create employee / technician / admin, edit, deactivate, reset password, technician level, capacity, skills |
 | Categories | `/admin/categories` | admin | create, rename, describe, deactivate |
-| Settings | `/admin/settings` | admin | priority strategy, assignment strategy (see the note in 5.3), IT service list with criticality |
+| Settings | `/admin/settings` | admin | priority strategy, assignment strategy (stored but not yet read by the selector, see 5.3) |
+| Services | `/admin/services` | admin | list, create, edit, deactivate IT services, criticality 1 to 4 |
+| SLA policies | `/admin/sla` | admin | edit the four defaults, add, edit and delete per-service overrides |
+| SLA monitor | `/admin/sla-monitor` | admin | breached and at-risk incidents with the reason and time left, and possible major incidents (clusters) |
 | Reports | `/admin/reports` | admin | overview tiles, SLA compliance, charts: incidents per day, by service, workload per technician, mean time to resolve |
 | Audit log | `/admin/audit` | admin | filter by actor, action, incident, dates |
-
-<!-- TODO(verify after merge): new screens from the parallel tracks (admin SLA policy and services pages, technician
-workload view, admin SLA monitor, role dashboards, incident editing, correlation) belong in this table. -->
 
 ## 10.4 Walkthrough: the brief's 14-step scenario
 
@@ -99,9 +100,9 @@ and a technician at the same time.
    appear while typing; click "Use it". Submit.
 3. You land on the incident page. Show: number `INC-0000nn`, status **ASSIGNED**, priority **P1** with the explanation
    (`Impact ORGANISATION (4) × urgency CRITICAL (4) × service criticality 4, 500 affected users → score 9.3 → P1`),
-   response due in 5 minutes and resolution due in 30, assignee Sofia Software, and the history timeline.
-   (With `ASSIGNMENT_STRATEGY=skill-least-loaded` Sofia is the only technician with the APPLICATION skill.)
-4. In the other window log in as `tech2@itsm.local`: the bell shows a notification "INC-... assigned to you" (live, no reload).
+   response due in 5 minutes and resolution due in 30, assignee Sofia or Dana, and the history timeline.
+   (With `ASSIGNMENT_STRATEGY=skill-least-loaded` the APPLICATION-skilled technicians are Sofia and Dana; the less loaded one is chosen, so the assignee can be either.)
+4. In the other window log in as the assignee (for example `tech2@itsm.local`): the bell shows a notification "INC-... assigned to you" (live, no reload).
    Open **Assigned to me**: the P1 incident is first. **Acknowledge**, **Start**, add an **investigation note**, then
    **Request information** ("Which payment method fails?").
 5. As the employee: the bell lights up; open the incident, **Respond** (resume) with an answer. Status returns to IN_PROGRESS.
@@ -133,8 +134,9 @@ and a technician at the same time.
 
 The default P1 SLA is 5 minutes to respond. Report a P1 incident as above and wait: after 75 % (about 3.75 minutes) the
 monitor records a warning, after 5 minutes without acknowledgement a response breach, which publishes
-`SlaBreached` and `IncidentEscalated(REASSIGN_REQUESTED)`; the assignee and administrators get notifications and the
-audit log shows `SLA_WARNING` and `SLA_BREACHED`. For a faster demo start the backend with `SLA_MONITOR_INTERVAL=5000`
+`SlaBreached`; the escalation chain then reassigns the incident to a team lead (Hugo in the demo data) with
+`IncidentEscalated(TEAM_LEAD)`, and the assignee, the team lead and administrators get notifications. The audit log shows
+`SLA_WARNING`, `SLA_BREACHED`, `INCIDENT_ESCALATED` and `INCIDENT_ASSIGNED` (strategy `escalation`). For a faster demo start the backend with `SLA_MONITOR_INTERVAL=5000`
 (check every 5 seconds).
 
 ## 10.5 The three demonstration workflows required by the brief
@@ -152,15 +154,15 @@ Acknowledge, start, investigation note, request information, reporter's answer, 
 and the SLA warning and breach demonstration. Show the history timeline and the reporter's notifications.
 
 **Workflow 3: duplicates, related incidents, escalation.**
-While reporting a second incident ("Payment page error 500", similar words) show the **similar incidents** panel listing
-the open payment incident (`TokenSimilarityDuplicateDetector`, threshold 0.4). Then let an unacknowledged incident breach
-its response SLA and show the escalation event and notifications (`REASSIGN_REQUESTED`; `ADMIN` for a resolution breach of
-a P1 or P2). As administrator use **Assign** to reassign the incident to another technician from the ranked
-recommendations: the incident returns to ASSIGNED and must be acknowledged again.
-<!-- TODO(verify after merge): incident correlation (linking related incidents) and the Technician -> Team Lead ->
-Admin escalation are in progress on parallel tracks. Today duplicates are hints only and escalation only publishes
-events; update this workflow with the final behaviour and screens after the merge. -->
-
+With the demo data the four Payment incidents already exist. While reporting another one ("Payment page error 500") show the
+**similar incidents** panel listing them (`TokenSimilarityDuplicateDetector`, threshold 0.4). As administrator open
+**SLA monitor**: the Payment incidents appear as a possible major incident (three or more open incidents on one service
+within two hours), next to the breached and at-risk lists with their reasons; an incident page shows its related incidents.
+Then let an unacknowledged incident breach its response SLA: the chain reassigns it to the team lead
+(`IncidentEscalated` level `TEAM_LEAD`, notifications to both technicians and the administrators); a P1 or P2 resolution
+breach escalates to the administrators (level `ADMIN`). As administrator use **Assign** to reassign an incident from the
+ranked recommendations: it returns to ASSIGNED and must be acknowledged again. As the reporter use **Edit incident** to
+raise the impact: the priority and deadlines are recalculated and the assignee is notified.
 ## 10.6 API quick reference
 
 Interactive documentation is at `/swagger-ui.html`. Example with curl:
@@ -175,7 +177,7 @@ curl -s localhost:8080/api/incidents -H "Authorization: Bearer $TOKEN" -H 'Conte
 
 Endpoint groups: `/api/auth/**`, `/api/admin/users/**`, `/api/incidents/**` (lifecycle, notes, search, history),
 `/api/admin/incidents/**`, `/api/categories`, `/api/admin/categories`, `/api/services`, `/api/admin/services`,
-`/api/admin/settings`, `/api/admin/assignment/recommendations`, `/api/intelligence/**`, `/api/notifications/**` (including the
+`/api/admin/settings`, `/api/admin/sla-policies`, `/api/admin/sla/at-risk`, `/api/admin/correlations`, `/api/incidents/workload`, `/api/admin/assignment/recommendations`, `/api/intelligence/**`, `/api/notifications/**` (including the
 SSE stream), `/api/reports/**`, `/api/admin/audit`, `/api/ping`.
 
 ## 10.7 Troubleshooting

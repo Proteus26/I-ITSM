@@ -12,25 +12,20 @@ A test for each requirement is listed in [09-test-cases.md](09-test-cases.md).
 | User management: Employee, Technician, Administrator | ✅ | FR-01 to FR-03, FR-30, FR-31 | `user` package (`User` hierarchy, `UserFactory`, `AdminUserController`), `auth` package; pages `/register`, `/login`, `/account`, `/admin/users` |
 | Incident management: create | ✅ | FR-10 | `IncidentService.report`, `POST /api/incidents`, page `/incidents/new` |
 | Incident management: view | ✅ | FR-11, FR-12 | `IncidentService.get/mine/assigned`, pages `/incidents`, `/incidents/[id]` |
-| Incident management: update | ✅ (status, notes, classification, assignment) | FR-13 to FR-19, FR-22 to FR-26, FR-36 | lifecycle endpoints of `IncidentController`. Editing title/description after reporting is not implemented (see TODO below) |
+| Incident management: update | ✅ (status, notes, classification, assignment, editing) | FR-13 to FR-19, FR-22 to FR-26, FR-36, FR-59 | lifecycle endpoints of `IncidentController`, `PATCH /api/incidents/{id}` (`Incident.edit`), edit form on `/incidents/[id]` |
 | Incident management: assign | ✅ | FR-36, FR-55 | `AssignmentService`, `AdminIncidentController.assign` |
 | Incident management: resolve | ✅ | FR-25 | `Incident.resolve`, `POST /api/incidents/{id}/resolve` |
 | Incident management: close | ✅ | FR-16, FR-17 | `POST /api/incidents/{id}/verify` then `/close` |
 | Priority: impact, urgency, business criticality | ✅ | FR-51 | `Impact`, `Urgency`, `ItService.criticality`, `PriorityService`, `WeightedScoreStrategy`, `MatrixStrategy` |
 | Technician assignment: at least two strategies | ✅ | FR-55 | `SkillLeastLoadedStrategy`, `RoundRobinStrategy` |
-| SLA: calculation | ✅ | FR-52 | `DefaultSlaService`, `SlaPolicyResolver`, table `sla_policies` |
+| SLA: calculation | ✅ | FR-33, FR-52 | `DefaultSlaService`, `SlaPolicyResolver`, table `sla_policies` |
 | SLA: deadline tracking | ✅ | FR-52, FR-53 | `Incident.responseDueAt/resolutionDueAt`, `SlaMonitor` |
-| SLA: violation detection | ✅ | FR-53, FR-54, FR-40 | `SlaMonitor`, `sla_events`, `EscalationChain`, report `sla-compliance`, search filter `slaStatus` |
+| SLA: violation detection | ✅ | FR-53, FR-54, FR-40 | `SlaMonitor`, `sla_events`, `EscalationChain`, `SlaRiskDetector`, report `sla-compliance`, search filter `slaStatus`, page `/admin/sla-monitor` |
 | Notification: at least two mechanisms | ✅ | FR-57, FR-58 | `InAppChannel` (stored + SSE push) and `EmailChannel` (SMTP or logging gateway) |
 | Audit: complete incident history | ✅ | FR-56, FR-39 | `AuditListener`, table `audit_log`, `GET /api/incidents/{id}/history`, `GET /api/admin/audit` |
 | Search and reporting: at least five criteria | ✅ (ten) | FR-37, FR-38 | `IncidentSpecifications`, `GET /api/incidents/search`, `ReportService` (six reports) |
-| Intelligent features: at least two | ✅ (two plus smart assignment) | FR-04, FR-05, FR-55 | `KeywordCategorySuggester`, `TokenSimilarityDuplicateDetector`, skill/load-aware assignment |
+| Intelligent features: at least two | ✅ (five) | FR-04, FR-05, FR-55, FR-60, FR-62 | `KeywordCategorySuggester`, `TokenSimilarityDuplicateDetector`, skill/load-aware assignment, `SlaRiskDetector`, `IncidentCorrelator` |
 | Persistence | ✅ | NFR-12 | PostgreSQL 17, Flyway migrations, [07-database-design.md](07-database-design.md) |
-
-<!-- TODO(verify after merge): parallel tracks add incident editing, a technician workload view, an admin SLA
-monitor with SLA risk detection, incident correlation, admin SLA-policy and services pages, an escalation chain
-Technician -> Team Lead -> Admin, role dashboards and richer demo data. Add the matching FR rows (and flip the
-"update" row above to fully implemented) once merged. -->
 
 ## 2.2 Functional requirements
 
@@ -66,11 +61,8 @@ Technician -> Team Lead -> Admin, role dashboards and richer demo data. Add the 
 | FR-25 | A technician requests additional information (IN_PROGRESS to PENDING_INFO) and later resumes work. | `POST /api/incidents/{id}/request-info`, `/resume` |
 | FR-26 | A technician resolves an incident with a summary (required) and root cause (optional). | `POST /api/incidents/{id}/resolve` |
 | FR-27 | A technician sees their own profile (level, capacity, availability, skills). | page `/dashboard` (technician card) |
+| FR-61 | A technician sees their workload: active incidents against capacity, counts per status, each active incident marked OVERDUE, AT_RISK or ON_TRACK, and can switch their availability for automatic assignment (existing assignments are kept). | `GET /api/incidents/workload`, `PATCH /api/me/availability` (`TechnicianWorkloadController`), page `/incidents?tab=assigned` |
 | FR-28 | A technician searches the incidents they reported or are assigned to. | `GET /api/incidents/search`, page `/search` |
-
-<!-- TODO(verify after merge): a dedicated technician workload view (current workload against capacity) is being
-added by a parallel track. Today the brief's "view current workload" is met by the assigned list (FR-21) and the
-profile card (FR-27); the per-technician workload counts exist as the admin report FR-38. -->
 
 ### Administrator
 
@@ -78,10 +70,10 @@ profile card (FR-27); the per-technician workload counts exist as the admin repo
 |---|---|---|
 | FR-30 | Manage users: list with search, role and status filters; create an employee, technician or administrator; edit details; activate or deactivate; reset a password. An administrator cannot deactivate themselves. | `AdminUserController`, `AdminUserService`, pages `/admin/users`, `/admin/users/new`, `/admin/users/[id]` |
 | FR-31 | Manage technicians: level (L1, L2, TEAM_LEAD), maximum active incidents, availability and skills (category codes; unknown or inactive categories are refused). | same endpoints; `Technician` entity |
-| FR-32 | Manage IT services: list, create, edit, deactivate (never deleted); each has a criticality from 1 to 4. | `AdminServiceController` (`/api/admin/services`) |
-| FR-33 | SLA policies: default per priority plus optional per-service override. | table `sla_policies`, `SlaPolicyResolver`; seeded by migration. Editing them is by SQL today, there is no API or page |
+| FR-32 | Manage IT services: list, create, edit, deactivate (never deleted); each has a criticality from 1 to 4. | `AdminServiceController` (`/api/admin/services`), page `/admin/services` |
+| FR-33 | Manage SLA policies: the four defaults (one per priority, edit only) plus optional per-service overrides (create, edit, delete); response and resolution minutes and warning threshold are validated. | `AdminSlaPolicyController` (`/api/admin/sla-policies`), `SlaPolicyAdminService`, `SlaPolicyResolver`, page `/admin/sla` |
 | FR-34 | Manage incident categories: list, create, rename, describe, deactivate. | `AdminCategoryController`, page `/admin/categories` |
-| FR-35 | Configure the priority strategy (`weighted` or `matrix`) and the assignment strategy setting. | `PUT /api/admin/settings/{key}`, page `/admin/settings` (see the note in [05](05-design-patterns-and-oop.md) about the assignment setting) |
+| FR-35 | Configure the priority strategy (`weighted` or `matrix`) and the assignment strategy setting. | `PUT /api/admin/settings/{key}`, page `/admin/settings` (the assignment setting is validated and stored but not yet read by the selector, see the note in [05](05-design-patterns-and-oop.md)) |
 | FR-36 | Classify a NEW incident (then the rest of the pipeline runs) and assign or reassign an incident to an active technician, with ranked recommendations. | `POST /api/admin/incidents/{id}/classify`, `/assign`, `GET /api/admin/assignment/recommendations` |
 | FR-37 | Search incidents with ten filters and sorting. Administrators see everything; everyone else sees only incidents they reported or are assigned to. | `GET /api/incidents/search`, page `/search` |
 | FR-38 | View six reports with charts: overview, technician workload, incidents by service, SLA compliance, mean time to resolve per priority, daily trend. | `ReportController` (`/api/reports/**`), page `/admin/reports` |
@@ -96,16 +88,16 @@ profile card (FR-27); the per-technician workload counts exist as the admin repo
 | FR-51 | Calculate priority P1 to P4 and a 0 to 10 score from impact, urgency, service criticality, affected users and category, with a stored human-readable explanation. | `PriorityService`, `WeightedScoreStrategy`, `MatrixStrategy` |
 | FR-52 | Compute response and resolution deadlines from the applicable SLA policy. | `DefaultSlaService.computeDeadlines` |
 | FR-53 | Check open incidents every minute (configurable) and record one warning at the policy's threshold (default 75 %) and a breach when a deadline passes, each at most once per incident. | `SlaMonitor`, `SlaMonitorScheduler` |
-| FR-54 | On a breach, run the escalation chain: a resolution breach of a P1/P2 notifies administrators; a response breach on an unacknowledged incident requests reassignment. | `EscalationChain`, `AdminEscalationHandler`, `ReassignEscalationHandler` |
+| FR-54 | On a breach, run the escalation chain Technician, Team Lead, Administrator: a response breach on an unacknowledged incident reassigns it to the best available team lead; a resolution breach of a P1/P2, or a response breach no team lead can take, notifies the administrators. | `EscalationChain`, `TeamLeadEscalationHandler`, `AdminEscalationHandler`, `JpaTeamLeadSource` |
 | FR-55 | Choose a technician with the configured strategy among active, available technicians below their capacity, never the reporter. | `AssignmentService`, `SkillLeastLoadedStrategy`, `RoundRobinStrategy` |
 | FR-56 | Publish a domain event for every important action and record each one in the audit log in the same transaction. | `IncidentEvent`, `AuditListener` |
 | FR-57 | Notify the relevant people (reporter, assignee, administrators) after the transaction commits, by in-app notification and by email. | `NotificationDispatcher`, `RecipientResolver`, `NotificationFactory`, channels |
 | FR-58 | Push new in-app notifications to open browser tabs over Server-Sent Events. | `NotificationStream`, `GET /api/notifications/stream`, `pages/api/notifications/stream.ts` |
 
-<!-- TODO(verify after merge): the planned escalation chain Technician -> Team Lead -> Admin will extend FR-54
-(today the chain only publishes IncidentEscalated events with level ADMIN or REASSIGN_REQUESTED and reassigns
-nothing). Update FR-54 and the escalation class diagram in 04-uml.md after the merge. -->
-
+| FR-59 | Edit an incident after reporting. Reporter: all editable fields (title, description, impact, urgency, affected users, service) while NEW, CLASSIFIED or ASSIGNED. Assignee: impact, urgency, affected users and service while the incident is active. Administrator: everything until RESOLVED. A change to impact, urgency, users or service recalculates priority and SLA deadlines; the editor's change is audited and the other party notified. | `PATCH /api/incidents/{id}`, `Incident.edit`, `Incident.editableFieldsFor`, `IncidentUpdated`, form on `/incidents/[id]` |
+| FR-60 | Predict SLA risk: classify open incidents as BREACHED or AT_RISK with a readable reason; administrators see the list. | `SlaRiskDetector`, `SlaRiskService`, `GET /api/admin/sla/at-risk`, page `/admin/sla-monitor` |
+| FR-62 | Correlate incidents: report clusters of at least three open incidents for one service (or category) created within two hours; show them to administrators and as related incidents to people who can see them. | `IncidentCorrelator`, `IncidentCorrelationService`, `GET /api/admin/correlations`, `GET /api/incidents/{id}/related` |
+| FR-63 | Optionally seed demo users and about 25 incidents through the real services (never under the `prod` profile). | `DemoDataSeeder`, `DEMO_DATA=true` |
 ## 2.3 Non-functional requirements
 
 | ID | Category | Requirement | How it is met |
@@ -228,7 +220,9 @@ ASSIGNED, RESOLVED or CLOSED is not notified because the specific event covers i
 | StatusChanged (other statuses), IncidentClosed | reporter and assignee |
 | NoteAdded | COMMENT: reporter and assignee; INVESTIGATION: assignee only; INFO_REQUEST: nobody (InfoRequested covers it) |
 | SlaWarningRaised | assignee, or administrators when nobody is assigned |
-| SlaBreached, IncidentEscalated | assignee and administrators |
+| SlaBreached | assignee and administrators |
+| IncidentEscalated | assignee, the team lead escalated to (if any) and administrators |
+| IncidentUpdated | reporter and assignee (the editor is never notified) |
 
 ### BR-07 Users
 
@@ -236,6 +230,17 @@ ASSIGNED, RESOLVED or CLOSED is not notified because the specific event covers i
   capacity, availability and skills; only employees have a department.
 * Passwords are 8 to 72 characters and at most 72 UTF-8 bytes (BCrypt limit).
 * A deactivated user cannot log in and their existing tokens stop working immediately.
+
+### BR-08 Editing an incident
+
+| Who | When | Fields |
+|---|---|---|
+| Reporter | NEW, CLASSIFIED, ASSIGNED | title, description, impact, urgency, affected users, service |
+| Assignee | active (ASSIGNED to PENDING_INFO) | impact, urgency, affected users, service |
+| Administrator | until RESOLVED | all |
+
+Nothing can be edited from RESOLVED onwards (409). An edit that changes no value is a no-op (no event, no audit entry); a request naming no field is a 400. A change to impact, urgency, affected users or service re-runs priority and SLA calculation; deadlines keep
+their original start time.
 
 ## 2.5 Roles and permissions matrix
 
@@ -253,6 +258,9 @@ ASSIGNED, RESOLVED or CLOSED is not notified because the specific event covers i
 | Feedback | reporter | reporter | no (not reporter) | `Incident.submitFeedback` |
 | Investigation note | no | assignee | yes | `noteTypesFor` |
 | Comment | reporter | reporter or assignee | yes | `noteTypesFor` |
+| Edit incident fields (BR-08) | reporter, early | assignee, limited | yes | `Incident.editableFieldsFor` |
+| My workload, availability | no | yes | no | `TechnicianWorkloadService` |
+| SLA monitor, possible major incidents, SLA policies | no | no | yes | `/api/admin/sla`, `/api/admin/correlations`, `/api/admin/sla-policies` |
 | Classify, assign, reassign | no | no | yes | `requireAdmin`, `/api/admin/**` |
 | Assignment recommendations | no | no | yes | `AssignmentController` `@PreAuthorize` |
 | Category suggestion, similar incidents | yes | yes | yes | any logged-in user |

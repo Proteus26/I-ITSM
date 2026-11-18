@@ -33,6 +33,8 @@ flowchart LR
             UC10(["Verify, reopen or close resolution"])
             UC11(["Cancel incident"])
             UC12(["Give feedback"])
+            UC34(["Edit incident"])
+            UC37(["See related incidents"])
         end
         subgraph Work["Investigation"]
             UC13(["View assigned incidents"])
@@ -40,6 +42,7 @@ flowchart LR
             UC15(["Add investigation note"])
             UC16(["Request additional information"])
             UC17(["Resolve incident"])
+            UC35(["View my workload,<br/>set availability"])
         end
         subgraph Admin["Administration"]
             UC18(["Manage users and technicians"])
@@ -52,6 +55,8 @@ flowchart LR
             UC25(["View reports"])
             UC26(["View audit log"])
             UC27(["Monitor SLA violations"])
+            UC36(["Manage SLA policies"])
+            UC38(["View SLA risk and<br/>possible major incidents"])
         end
         subgraph Auto["Automatic"]
             UC28(["Classify, prioritise,<br/>apply SLA, assign"])
@@ -63,15 +68,16 @@ flowchart LR
         UC33(["Receive notifications"])
     end
 
-    EMP --- UC1 & UC2 & UC3 & UC4 & UC7 & UC8 & UC9 & UC10 & UC11 & UC12 & UC24 & UC33
-    TEC --- UC2 & UC3 & UC4 & UC8 & UC13 & UC14 & UC15 & UC16 & UC17 & UC9 & UC24 & UC33
-    ADM --- UC2 & UC3 & UC18 & UC19 & UC20 & UC21 & UC22 & UC23 & UC24 & UC25 & UC26 & UC27 & UC8 & UC33
+    EMP --- UC1 & UC2 & UC3 & UC4 & UC7 & UC8 & UC9 & UC10 & UC11 & UC12 & UC24 & UC33 & UC34 & UC37
+    TEC --- UC2 & UC3 & UC4 & UC8 & UC13 & UC14 & UC15 & UC16 & UC17 & UC9 & UC24 & UC33 & UC34 & UC35 & UC37
+    ADM --- UC2 & UC3 & UC18 & UC19 & UC20 & UC21 & UC22 & UC23 & UC24 & UC25 & UC26 & UC27 & UC8 & UC33 & UC34 & UC36 & UC37 & UC38
     SYS --- UC28 & UC29 & UC30 & UC31 & UC32
 
     UC4 -.->|include| UC28
     UC4 -.->|extend| UC5
     UC4 -.->|extend| UC6
     UC22 -.->|include| UC28
+    UC34 -.->|include| UC28
     UC29 -.->|include| UC30
     UC28 -.->|include| UC31
     UC17 -.->|include| UC31
@@ -82,13 +88,13 @@ flowchart LR
 Notes:
 
 * Technicians use the reporting use cases too when they report an incident themselves (UC4 and the reporter actions).
-* UC27 (monitor SLA violations) is served by the overview and SLA-compliance reports and the `slaStatus` search filter.
-* "Manage IT services" (UC20) and SLA policy values have an API and seeded data; the admin pages for them are not on `main`.
+* UC27 (monitor SLA violations) is served by the overview and SLA-compliance reports, the `slaStatus` search filter and
+  the admin SLA monitor page (UC38), which also lists clusters of similar open incidents.
+* UC34 (edit incident): which fields a person may change depends on role and status (section 2.4, BR-08); an edit that
+  touches impact, urgency, affected users or service re-runs the priority and SLA steps (so it includes UC28).
+* "Manage IT services" (UC20) and "Manage SLA policies" (UC36) have API endpoints and admin pages (`/admin/services`, `/admin/sla`).
 * UC10 for an administrator means verifying, reopening or closing on behalf of the reporter (`REPORTER_OR_ADMIN`).
-
-<!-- TODO(verify after merge): add use cases for the parallel tracks once merged: edit incident, technician workload
-view, admin SLA monitor / risk detection, incident correlation, manage SLA policies and services pages, role
-dashboards. -->
+* UC35 is for technicians only; UC37 shows incidents of the same cluster that the viewer is allowed to see.
 
 ## 4.2 Class diagram: users
 
@@ -228,7 +234,36 @@ classDiagram
         +applySla(responseDueAt, resolutionDueAt, now)
         +submitFeedback(rating, comment, actor, now)
         +canGiveFeedback(actor) Boolean
+        +editableFieldsFor(actor) Set
+        +edit(edit, actor, now) EditResult
     }
+    class IncidentEdit {
+        <<data>>
+        +String title
+        +String description
+        +Impact impact
+        +Urgency urgency
+        +Int affectedUsers
+        +Long serviceId
+        +Boolean clearService
+    }
+    class EditResult {
+        <<data>>
+        +List changed
+        +affectsPriority Boolean
+    }
+    class EditField {
+        <<enumeration>>
+        TITLE
+        DESCRIPTION
+        IMPACT
+        URGENCY
+        AFFECTED_USERS
+        SERVICE
+    }
+    Incident ..> IncidentEdit : edit
+    Incident ..> EditResult : returns
+    EditResult --> EditField
     class IncidentState {
         <<sealed>>
         +IncidentStatus status
@@ -500,9 +535,12 @@ classDiagram
     TokenSimilarityDuplicateDetector ..> TextSimilarity
 ```
 
-<!-- TODO(verify after merge): the assignment strategy key currently comes from the property
-(PropertyStrategyKeySource) only; if the lead wires system_settings assignment.strategy in as a second
-StrategyKeySource, update this diagram. -->
+The setting `assignment.strategy` is stored in `system_settings` and validated, but `AssignmentStrategySelector` reads the
+key only through `PropertyStrategyKeySource` (`itsm.assignment.strategy`). The `StrategyKeySource` interface is the planned
+seam for reading the setting instead (see section 5.3).
+
+Incident correlation (`IncidentCorrelator`, a pure class grouping `CorrelationCandidate`s into `IncidentCluster`s) and
+`IncidentCorrelationService` (loads open incidents, filters by what the viewer may see) are described in section 5.11.
 
 ## 4.5 Class diagram: notifications (Observer, Factory, Adapter)
 
@@ -651,17 +689,21 @@ classDiagram
         <<abstract>>
         +EscalationHandler next
         +handle(context) Boolean
-        #canHandle(context) Boolean*
-        #escalate(context)*
+        #tryHandle(context) Boolean*
+    }
+    class TeamLeadEscalationHandler {
+        order 1
+        level = TEAM_LEAD
     }
     class AdminEscalationHandler {
-        order 1
+        order 2
         level = ADMIN
     }
-    class ReassignEscalationHandler {
-        order 2
-        level = REASSIGN_REQUESTED
+    class TeamLeadSource {
+        <<interface>>
+        +find(incident) Long
     }
+    class JpaTeamLeadSource
     class EscalationChain {
         +escalate(context) Boolean
     }
@@ -675,20 +717,25 @@ classDiagram
     SlaEvent --> SlaEventType
     SlaMonitor --> EscalationChain
     SlaMonitor ..> SlaPolicy : reads
+    EscalationHandler <|-- TeamLeadEscalationHandler
     EscalationHandler <|-- AdminEscalationHandler
-    EscalationHandler <|-- ReassignEscalationHandler
+    TeamLeadEscalationHandler --> TeamLeadSource
+    TeamLeadSource <|.. JpaTeamLeadSource
     EscalationHandler --> EscalationHandler : next
     EscalationChain --> EscalationHandler : first
     EscalationHandler ..> EscalationContext
 ```
 
-Today's chain: `AdminEscalationHandler` (resolution breach of P1/P2, event level `ADMIN`) then
-`ReassignEscalationHandler` (response breach while unacknowledged, event level `REASSIGN_REQUESTED`). The handlers
-only publish `IncidentEscalated`; they do not reassign.
+The chain is Technician (the current assignee) to Team Lead to Administrator. `TeamLeadEscalationHandler` (order 1)
+handles the response breach of an incident nobody acknowledged: `JpaTeamLeadSource` picks an active, available team
+lead (preferring the category skill, then the lowest load) and the incident is **reassigned** to that person with
+`Actor.SYSTEM`; it publishes `IncidentEscalated(level TEAM_LEAD)`, `IncidentAssigned(strategy "escalation")` and, when
+the status changed, `StatusChanged`. `AdminEscalationHandler` (order 2) is the last link: it publishes
+`IncidentEscalated(level ADMIN)` for a P1/P2 resolution breach, or for an unacknowledged response breach for which no
+team lead could take over. `SlaMonitor` calls the chain once per incident and breach type.
 
-<!-- TODO(verify after merge): the escalation chain Technician -> Team Lead -> Admin (parallel track) will add or
-replace handlers here and may reassign incidents; update this diagram, the paragraph above, and 05 (Chain of
-Responsibility) after the merge. -->
+Beside the monitor, `SlaRiskDetector` is a pure class that classifies an open incident as `BREACHED` or `AT_RISK`
+(`SlaRiskState`), used by `SlaRiskService` for `GET /api/admin/sla/at-risk` and by `TechnicianWorkloadService`.
 
 ## 4.7 Class diagram: report pipeline (Template Method)
 

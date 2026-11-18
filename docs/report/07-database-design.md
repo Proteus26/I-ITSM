@@ -19,8 +19,9 @@ migrations or the application will not start.
 **Naming.** `V<yyyymmdd>_<hhmm>__<description>.sql`. Timestamps rather than counters mean five people can add
 migrations in parallel without two of them both creating "V3". A merged migration is never edited; fixes are new
 migrations (this is why the SLA tables were first created in minimal form and then extended with `ALTER TABLE`).
-<!-- TODO(verify after merge): parallel tracks (SLA policy admin, incident correlation, escalation levels, incident
-editing) may add migrations; list them in the table above and update the ER diagram. -->
+The later feature work (SLA policy administration, incident editing, escalation levels, correlation, SLA risk) needed no schema
+change: `sla_policies`, `incidents` and `audit_log` already held what they use (escalation levels are recorded in the
+`INCIDENT_ESCALATED` audit entry, clusters and risk are computed on request).
 
 ## 7.2 Entity-relationship diagram
 
@@ -289,27 +290,35 @@ STORAGE (each with a one-line description, all active).
 
 | Email | Name | Role | Level | Skills |
 |---|---|---|---|---|
-| `employee@itsm.local` | Erin Employee | EMPLOYEE | | |
+| `employee@itsm.local` | Erin Employee (Finance) | EMPLOYEE | | |
+| `employee2@itsm.local` | Marco Marketing | EMPLOYEE | | |
+| `employee3@itsm.local` | Priya People (Human Resources) | EMPLOYEE | | |
 | `tech1@itsm.local` | Tariq Network | TECHNICIAN | L2 | NETWORK, AUTHENTICATION, SECURITY |
 | `tech2@itsm.local` | Sofia Software | TECHNICIAN | L1 | SOFTWARE, APPLICATION, DATABASE |
 | `tech3@itsm.local` | Hugo Hardware | TECHNICIAN | TEAM_LEAD | HARDWARE, CLOUD, STORAGE |
+| `tech4@itsm.local` | Dana Database | TECHNICIAN | L2 | DATABASE, APPLICATION, CLOUD, SECURITY |
+| `tech5@itsm.local` | Leo Helpdesk | TECHNICIAN | L1 | HARDWARE, SOFTWARE, AUTHENTICATION, NETWORK, STORAGE |
 
-and five incidents reported by Erin, created through the real `IncidentService` so priority, SLA, assignment, audit rows and
-notifications exist:
+and 24 incidents reported by the three employees, created through the real `IncidentService` so priority, SLA,
+assignment, audit rows and notifications exist. They cover the services (Payment, VPN, Email, Storage, Auth, Website,
+HR, Database), all four priorities and every lifecycle state (NEW, ASSIGNED, IN_PROGRESS, PENDING_INFO, RESOLVED and
+CLOSED with feedback ratings). Examples:
 
-| Title | Impact / urgency | Priority (weighted, no service so criticality 2) | What happens |
-|---|---|---|---|
-| VPN drops every few minutes | TEAM / HIGH | P3 (4.8) | text matches NETWORK; assigned to Tariq, who acknowledges and starts work (IN_PROGRESS) |
-| Locked out after password reset | INDIVIDUAL / HIGH | P4 (3.5) | category AUTHENTICATION given; assigned to Tariq, ASSIGNED |
-| Laptop battery is swollen | INDIVIDUAL / CRITICAL | P3 (4.0) | text matches HARDWARE; assigned to Hugo, ASSIGNED |
-| Excel crashes on large files | TEAM / MEDIUM | P3 (4.0) | text matches SOFTWARE; assigned to Sofia, who resolves it (RESOLVED) |
-| Something odd on my screen | INDIVIDUAL / LOW | P4 (1.3) | no keywords: stays NEW for an administrator to classify |
+| Title | Reporter | What it shows |
+|---|---|---|
+| VPN drops every few minutes | Erin | IN_PROGRESS with Tariq, at risk of its SLA |
+| Laptop battery is swollen | Erin | assigned to Hugo, response SLA breached |
+| Website contact form returns an error | Marco | IN_PROGRESS with Dana, SLA breached |
+| Cannot send email to external clients | Marco | PENDING_INFO, at risk |
+| Something odd on my screen | Erin | no keywords, stays NEW for an administrator to classify |
+| Excel crashes on large files | Erin | RESOLVED, waiting for the reporter to confirm |
+| Docking station does not charge the laptop | Erin | CLOSED with rating 5 (older work feeds the trend and mean-time-to-resolve reports) |
+| four incidents for the Payment service | Marco, Priya, Erin | reported within the last hour: a cluster for the correlation view |
 
-(The seeder is idempotent per user and incident title and refuses to run under the `prod` profile. Whether an
-incident is assigned depends on the automatic assignment at that moment, so the final statuses can differ slightly
-when data already exists.)
-<!-- TODO(verify after merge): a parallel track is enriching the demo data; replace the table above with the final
-accounts and incidents after the merge. -->
+The seeder moves the SLA deadlines of a few incidents into the past with JDBC (the creation time is immutable in the
+domain) and runs the SLA monitor once, so that two breached and several at-risk incidents exist from the first minute.
+It is idempotent per user and incident title, and refuses to run under the `prod` profile. `DemoDataSeederTest`
+checks the counts and the idempotence.
 
 ### Example rows
 

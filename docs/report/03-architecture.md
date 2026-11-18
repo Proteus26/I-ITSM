@@ -74,10 +74,10 @@ They meet at small contracts (interfaces, DTOs, events), which is why the module
 | Module | Responsibility | Packages | Main classes |
 |---|---|---|---|
 | **P1 Users and security** | Accounts, roles, authentication, sessions, admin user API | `user`, `auth`, `config`, `common.exception`, `web` | `User`, `Employee`, `Technician`, `Administrator`, `UserFactory`, `AuthService`, `JwtTokenService`, `LoginAttemptTracker`, `SessionRevoker`, `SecurityConfig`, `GlobalExceptionHandler` |
-| **P2 Incidents** | Incident domain, lifecycle, report pipeline, REST API, categories, demo data | `incident`, `category`, `demo` | `Incident`, `IncidentState`, `IncidentService`, `IncidentProcessingPipeline`, `StandardIncidentPipeline`, `IncidentController`, `CategoryService`, `DemoDataSeeder` |
-| **P3 Service catalog, priority, SLA** | IT services, priority strategies, SLA policies, monitoring, escalation, settings | `service`, `priority`, `sla`, `sla.escalation`, `settings` | `ItService`, `ServiceCatalog`, `PriorityService`, `WeightedScoreStrategy`, `MatrixStrategy`, `DefaultSlaService`, `SlaMonitor`, `EscalationChain`, `SettingsService` |
+| **P2 Incidents** | Incident domain, lifecycle, report pipeline, REST API, categories, demo data | `incident`, `category`, `demo` | `Incident`, `IncidentState`, `IncidentService`, `IncidentProcessingPipeline`, `StandardIncidentPipeline`, `IncidentController`, `TechnicianWorkloadService`, `CategoryService`, `DemoDataSeeder` |
+| **P3 Service catalog, priority, SLA** | IT services, priority strategies, SLA policies, monitoring, escalation, settings | `service`, `priority`, `sla`, `sla.escalation`, `sla.risk`, `settings` | `ItService`, `ServiceCatalog`, `PriorityService`, `WeightedScoreStrategy`, `MatrixStrategy`, `DefaultSlaService`, `SlaPolicyAdminService`, `SlaMonitor`, `SlaRiskDetector`, `EscalationChain`, `SettingsService` |
 | **P4 Events, notifications, audit, search, reports** | Event contract, audit trail, notifications (in-app, email, SSE), search, reports | `events`, `audit`, `notification`, `notification.channel`, `notification.stream`, `search`, `reports`, `reference` | `IncidentEvent`, `AuditListener`, `NotificationDispatcher`, `NotificationFactory`, `RecipientResolver`, `InAppChannel`, `EmailChannel`, `EmailGateway`, `IncidentSpecifications`, `ReportService` |
-| **P5 Assignment and intelligence** | Technician selection, category suggestion, duplicate hints | `assignment`, `intelligence` | `AssignmentService`, `SkillLeastLoadedStrategy`, `RoundRobinStrategy`, `AssignmentStrategySelector`, `KeywordCategorySuggester`, `TokenSimilarityDuplicateDetector` |
+| **P5 Assignment and intelligence** | Technician selection, category suggestion, duplicate hints | `assignment`, `intelligence` | `AssignmentService`, `SkillLeastLoadedStrategy`, `RoundRobinStrategy`, `AssignmentStrategySelector`, `KeywordCategorySuggester`, `TokenSimilarityDuplicateDetector`, `IncidentCorrelator` |
 | **Frontend** | Pages, proxy, session handling | `frontend/src` | `middleware.ts`, `lib/gate.ts`, `lib/access.ts`, `lib/backend.ts`, `lib/proxy.ts`, `lib/csrf.ts`, `pages/**` |
 
 Dependencies between modules (arrows mean "uses"):
@@ -146,7 +146,7 @@ sequenceDiagram
     P->>SL: 4. applySla(serviceId, priority, createdAt)
     SL-->>P: SlaDeadlines
     P->>I: applySla()
-    P->>AS: 5. assign() (only if CLASSIFIED; reporter excluded)
+    P->>AS: 5. assign() (only if CLASSIFIED, reporter excluded)
     AS-->>P: AssignmentResult or null
     P->>I: assign(technician, SYSTEM) CLASSIFIED to ASSIGNED
     P->>EV: IncidentAssigned, StatusChanged
@@ -186,7 +186,8 @@ by audit only.
 | `IncidentClosed` | `IncidentService.close` | CLOSED | INCIDENT_CLOSED | reporter, assignee |
 | `SlaWarningRaised` | `SlaMonitor` | threshold reached | SLA_WARNING | assignee or admins |
 | `SlaBreached` | `SlaMonitor` | deadline passed | SLA_BREACHED | assignee, admins |
-| `IncidentEscalated` | `AdminEscalationHandler`, `ReassignEscalationHandler` | escalation step | INCIDENT_ESCALATED | assignee, admins |
+| `IncidentEscalated` | `TeamLeadEscalationHandler`, `AdminEscalationHandler` | escalation step (level `TEAM_LEAD` or `ADMIN`) | INCIDENT_ESCALATED | assignee, team lead escalated to, admins |
+| `IncidentUpdated` | `IncidentService.update` | title, description, impact, urgency, users or service edited | INCIDENT_UPDATED | reporter or assignee (not the editor) |
 | `UserLoggedIn` / `LoginFailed` | `AuthService` | login | USER_LOGGED_IN / LOGIN_FAILED | nobody |
 
 ```mermaid
@@ -228,8 +229,9 @@ Adding a new consumer (a webhook, a metrics collector) means writing one more li
 | SLA check | `SlaMonitorScheduler.tick` calls `SlaMonitor.runOnce` | `itsm.sla.monitor-interval`, default 60000 ms; can be disabled (`SLA_MONITOR_ENABLED=false`, as in tests) | warnings, breaches, escalation |
 | SSE heartbeat | `NotificationStream.heartbeat` | 25 s | keep idle SSE connections alive and drop dead ones |
 
-<!-- TODO(verify after merge): an admin SLA monitor with SLA risk detection (predictive/at-risk view) is being added
-by a parallel track; add it here and to the module map once merged. -->
+The admin **SLA monitor** page is not a job: `GET /api/admin/sla/at-risk` (`SlaRiskService`) evaluates the open incidents on
+demand with `SlaRiskDetector` and the correlation view (`IncidentCorrelationService`) clusters open incidents on demand;
+nothing is stored for either.
 
 ## 3.6 Deployment
 
