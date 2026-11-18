@@ -7,7 +7,7 @@ import IncidentStatusBadge from '../../components/IncidentStatusBadge.astro';
 import PriorityBadge from '../../components/PriorityBadge.astro';
 import IncidentTimeline from '../../components/IncidentTimeline.astro';
 import { backendFor } from '../../lib/backend';
-import { formErrorState, formatDateTime, formString } from '../../lib/forms';
+import { formErrorState, formatDateTime, formString, lookupNotice } from '../../lib/forms';
 import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
 import { handleLoadError } from '../../lib/loadError';
 import { humanize } from '../../lib/p4';
@@ -15,6 +15,8 @@ import {
   ACTION_INTENT,
   ACTION_LABEL,
   CONFIRM_MESSAGE,
+  MAX_FEEDBACK_COMMENT,
+  MAX_ROOT_CAUSE,
   MAX_TEXT,
   NOTICES,
   NOTE_TYPE_LABEL,
@@ -52,6 +54,7 @@ if (!/^\d{1,15}$/.test(idParam)) return Astro.rewrite('/404');
 const id = Number(idParam);
 const api = backendFor(Astro.cookies);
 const here = `/incidents/${id}`;
+const RECOMMENDED_INTENT = 'assign-recommended';
 
 let incident: IncidentDetail | null = null;
 let error: string | null = null;
@@ -108,6 +111,8 @@ if (incident && Astro.request.method === 'POST') {
       return Astro.redirect(`${here}?notice=${ACTION_INTENT[action]}`);
     };
   }
+  // The recommendation buttons post their own intent so errors and preselection stay with the right form.
+  handlers[RECOMMENDED_INTENT] = handlers[ACTION_INTENT.ASSIGN]!;
   handlers['add-note'] = async (f) => {
     const parsed = parseNoteForm(f, allowedNoteTypes(current.noteTypes));
     if (!parsed.ok) return void fail('Please fix the highlighted fields.', parsed.errors);
@@ -132,8 +137,7 @@ if (incident && Astro.request.method === 'POST') {
 
 const notices = Astro.request.method === 'GET' ? Astro.url.searchParams : new URLSearchParams();
 const reported = notices.get('reported') === '1';
-const noticeKey = notices.get('notice') ?? '';
-const notice = Object.hasOwn(NOTICES, noticeKey) ? NOTICES[noticeKey] : undefined;
+const notice = lookupNotice(NOTICES, notices.get('notice'));
 
 // Everything below is secondary data: a failure only hides that block.
 let notes: IncidentNote[] = [];
@@ -163,6 +167,8 @@ if (incident) {
 const val = (intent: string, name: string, fallback = ''): string => (submitted?.intent === intent ? (submitted.values[name] ?? fallback) : fallback);
 /** Field errors of the form that was just posted. */
 const errs = (intent: string): Record<string, string> => (submitted?.intent === intent ? fieldErrors : {});
+/** A general (not per-field) error of the assign card, shown inside the form that was posted. */
+const assignError = (intent: string): string | null => (submitted?.intent === intent && error && !Object.keys(fieldErrors).length ? error : null);
 
 const now = new Date();
 const finished = incident ? isFinished(incident.status) : false;
@@ -181,7 +187,7 @@ const technicianOptions = [
   <p><a href="/incidents">&larr; Incidents</a></p>
   {reported && <Alert kind="success">Your incident was reported. We will keep you informed as it progresses.</Alert>}
   {notice && <Alert kind="success">{notice}</Alert>}
-  {error && <Alert kind="error">{error}</Alert>}
+  {error && !(actions.includes('ASSIGN') && (assignError('assign') || assignError(RECOMMENDED_INTENT))) && <Alert kind="error">{error}</Alert>}
 
   {
     incident && (
@@ -297,7 +303,7 @@ const technicianOptions = [
                         {a === 'RESOLVE' && (
                           <>
                             <TextAreaField idPrefix={intent} name="summary" label="What was done" value={val(intent, 'summary')} error={e.summary} required maxlength={MAX_TEXT} />
-                            <TextAreaField idPrefix={intent} name="rootCause" label="Root cause (optional)" value={val(intent, 'rootCause')} error={e.rootCause} maxlength={MAX_TEXT} rows={2} />
+                            <TextAreaField idPrefix={intent} name="rootCause" label="Root cause (optional)" value={val(intent, 'rootCause')} error={e.rootCause} maxlength={MAX_ROOT_CAUSE} rows={2} />
                           </>
                         )}
                         {(a === 'REOPEN' || a === 'CANCEL') && <TextAreaField idPrefix={intent} name="reason" label="Reason (optional)" value={val(intent, 'reason')} error={e.reason} maxlength={MAX_TEXT} rows={2} />}
@@ -317,7 +323,7 @@ const technicianOptions = [
                                 <p class="hint">1 = very unhappy, 5 = very happy.</p>
                                 {e.rating && <p class="error" id="fb-rating-error">{e.rating}</p>}
                               </fieldset>
-                              <TextAreaField idPrefix={intent} name="comment" label="Comment (optional)" value={val(intent, 'comment')} error={e.comment} maxlength={MAX_TEXT} rows={3} />
+                              <TextAreaField idPrefix={intent} name="comment" label="Comment (optional)" value={val(intent, 'comment')} error={e.comment} maxlength={MAX_FEEDBACK_COMMENT} rows={3} />
                             </>
                           )
                         }
@@ -347,11 +353,12 @@ const technicianOptions = [
                       {recommendations.length > 0 ? (
                         <>
                           <p class="muted">Recommended technicians:</p>
+                          {(assignError(RECOMMENDED_INTENT) ?? errs(RECOMMENDED_INTENT).technicianId) && <p class="error" role="alert">{assignError(RECOMMENDED_INTENT) ?? errs(RECOMMENDED_INTENT).technicianId}</p>}
                           <ul class="plain-list">
                             {recommendations.map((r) => (
                               <li>
                                 <form method="post" action={here} class="inline-form">
-                                  <input type="hidden" name="intent" value="assign" />
+                                  <input type="hidden" name="intent" value={RECOMMENDED_INTENT} />
                                   <input type="hidden" name="technicianId" value={String(r.technicianId)} />
                                   <button type="submit" class="btn btn-secondary btn-small">Assign to {r.technicianName}</button>
                                 </form>
@@ -366,6 +373,7 @@ const technicianOptions = [
                       <form method="post" action={here}>
                         <input type="hidden" name="intent" value="assign" />
                         <FormField name="technicianId" label="Or choose a technician" value={val('assign', 'technicianId')} error={errs('assign').technicianId} options={technicianOptions} />
+                        {assignError('assign') && <p class="error" role="alert">{assignError('assign')}</p>}
                         <button type="submit" class="btn">Assign</button>
                       </form>
                     </section>

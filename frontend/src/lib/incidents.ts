@@ -28,6 +28,8 @@ import type { Role } from './types';
 /** Backend limits (Incident.MAX_TITLE / MAX_TEXT). */
 export const MAX_TITLE = 200;
 export const MAX_TEXT = 4000;
+export const MAX_ROOT_CAUSE = 2000;
+export const MAX_FEEDBACK_COMMENT = 1000;
 
 export interface Option {
   value: string;
@@ -185,7 +187,8 @@ export function visibleActions(actions: readonly string[] | null | undefined): I
 /** The note types the viewer may add, known ones only, in a fixed order. */
 export function allowedNoteTypes(types: readonly string[] | null | undefined): NoteType[] {
   const set = new Set(types ?? []);
-  return NOTE_TYPES.filter((t) => set.has(t));
+  // INFO_RESPONSE is never offered: reporters answer through the RESUME action and the backend rejects direct notes of that type.
+  return NOTE_TYPES.filter((t) => t !== 'INFO_RESPONSE' && set.has(t));
 }
 
 export const NOTE_TYPE_LABEL: Record<NoteType, string> = {
@@ -195,13 +198,13 @@ export const NOTE_TYPE_LABEL: Record<NoteType, string> = {
   COMMENT: 'Comment',
 };
 
-function textField(form: FormData, name: string, label: string, required: boolean, errors: Record<string, string>): string | undefined {
+function textField(form: FormData, name: string, label: string, required: boolean, errors: Record<string, string>, max: number = MAX_TEXT): string | undefined {
   const text = formString(form, name);
   if (!text) {
     if (required) errors[name] = `${label} is required.`;
     return undefined;
   }
-  if (text.length > MAX_TEXT) errors[name] = `${label} can have at most ${MAX_TEXT} characters.`;
+  if (text.length > max) errors[name] = `${label} can have at most ${max} characters.`;
   return text;
 }
 
@@ -232,7 +235,7 @@ export function parseActionForm(action: IncidentAction, form: FormData): ParseRe
     }
     case 'RESOLVE': {
       const summary = textField(form, 'summary', 'The summary', true, errors);
-      const rootCause = textField(form, 'rootCause', 'The root cause', false, errors);
+      const rootCause = textField(form, 'rootCause', 'The root cause', false, errors, MAX_ROOT_CAUSE);
       body = { summary: summary ?? '', ...(rootCause === undefined ? {} : { rootCause }) };
       break;
     }
@@ -245,7 +248,7 @@ export function parseActionForm(action: IncidentAction, form: FormData): ParseRe
     case 'FEEDBACK': {
       const rating = parseOptionalInt(formString(form, 'rating'), { min: 1, max: 5 });
       if (rating === undefined) errors.rating = 'Choose a rating from 1 to 5.';
-      const comment = textField(form, 'comment', 'The comment', false, errors);
+      const comment = textField(form, 'comment', 'The comment', false, errors, MAX_FEEDBACK_COMMENT);
       body = { rating: rating ?? 0, ...(comment === undefined ? {} : { comment }) };
       break;
     }

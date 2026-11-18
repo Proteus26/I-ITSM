@@ -14,6 +14,7 @@ import com.itsm.events.InfoRequested
 import com.itsm.events.NoteAdded
 import com.itsm.events.StatusChanged
 import com.itsm.service.ItServiceRepository
+import com.itsm.sla.SlaService
 import com.itsm.user.PageResponse
 import com.itsm.user.Role
 import com.itsm.user.TechnicianRepository
@@ -45,6 +46,7 @@ class IncidentService(
     private val pipeline: IncidentProcessingPipeline,
     private val assembler: IncidentAssembler,
     private val events: ApplicationEventPublisher,
+    private val sla: SlaService,
     private val clock: Clock,
 ) {
     // ---- reporting -------------------------------------------------------------------------------------------------
@@ -91,12 +93,14 @@ class IncidentService(
         return pageOf(incidents.findByAssigneeIdAndStatusIn(viewer.id, IncidentStatus.ACTIVE, pageRequest(page, size, sort)))
     }
 
-    /** The thread of notes; the reporter, when an employee, does not see INVESTIGATION notes. */
+    /** The thread of notes. INVESTIGATION notes are internal: only the assignee and administrators see them, whatever the viewer's role. */
     @Transactional(readOnly = true)
     fun notes(id: Long, viewer: AuthenticatedUser): List<IncidentNoteResponse> {
         val incident = loadVisible(id, viewer)
         val all = notes.findByIncidentIdOrderByCreatedAtAscIdAsc(requireNotNull(incident.id))
-        val visible = if (viewer.role == Role.EMPLOYEE) all.filter { it.type != NoteType.INVESTIGATION } else all
+        val actor = Actor.of(viewer)
+        val internal = incident.isActing(actor, Party.ASSIGNEE) || actor.isAdmin
+        val visible = if (internal) all else all.filter { it.type != NoteType.INVESTIGATION }
         return assembler.notes(visible)
     }
 
@@ -107,6 +111,9 @@ class IncidentService(
         val actor = Actor.of(viewer)
         if (request.type == NoteType.INFO_REQUEST) {
             throw DomainValidationException("An information request is created with the request-info action, not as a note")
+        }
+        if (request.type == NoteType.INFO_RESPONSE) {
+            throw DomainValidationException("An answer to an information request is sent with the resume action (POST /api/incidents/{id}/resume), not as a note")
         }
         if (request.type !in incident.noteTypesFor(actor)) {
             throw UnauthorizedOperationException("You cannot add a ${request.type} note to this incident now")
@@ -158,9 +165,19 @@ class IncidentService(
         move(i, IncidentStatus.VERIFIED, actor)
     }
 
-    /** RESOLVED -> IN_PROGRESS: the fix did not work. The previous resolution and feedback are cleared; the reason is kept as a COMMENT. */
+    /**
+     * RESOLVED -> IN_PROGRESS: the fix did not work. The previous resolution and feedback are cleared; the reason is
+     * kept as a COMMENT. The SLA is re-armed: the deadlines are recomputed from now, otherwise the old resolution
+     * deadline (long past) would make the SLA monitor record a false breach. SLA events already recorded stay, and the
+     * unique constraint on (incident, type) means a type recorded before is not recorded a second time.
+     */
     fun reopen(id: Long, viewer: AuthenticatedUser, request: ReasonRequest): IncidentDetail = act(id, viewer) { i, actor ->
+        val now = clock.instant()
         move(i, IncidentStatus.IN_PROGRESS, actor, only = IncidentStatus.RESOLVED)
+        i.priority?.let { p ->
+            val deadlines = sla.computeDeadlines(i.serviceId, p, now)
+            i.applySla(deadlines.responseDueAt, deadlines.resolutionDueAt, now)
+        }
         request.reason?.takeIf { it.isNotBlank() }?.let { saveNote(i, viewer, NoteType.COMMENT, it) }
     }
 
@@ -202,6 +219,7 @@ class IncidentService(
         val incident = load(id)
         val technician = technicians.findById(request.technicianId).orElse(null)
         domainRequire(technician != null && technician.active) { "User ${request.technicianId} is not an active technician" }
+        domainRequire(request.technicianId != incident.reporterId) { "cannot assign an incident to its reporter" }
         val previousAssignee = incident.assigneeId
         val change = incident.assign(request.technicianId, Actor.of(admin), clock.instant())
         if (incident.assigneeId != previousAssignee) {

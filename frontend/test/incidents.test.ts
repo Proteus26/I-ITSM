@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTION_INTENT,
   EMPTY_REPORT_FORM,
+  MAX_FEEDBACK_COMMENT,
+  MAX_ROOT_CAUSE,
   MAX_TEXT,
   MAX_TITLE,
   allowedNoteTypes,
@@ -162,5 +164,22 @@ describe('lists', () => {
   });
   it('links to the detail page', () => {
     expect(incidentHref(12)).toBe('/incidents/12');
+  });
+});
+
+describe('backend length limits', () => {
+  it('limits the root cause to 2000 characters', () => {
+    expect(parseActionForm('RESOLVE', fd({ summary: 's', rootCause: 'a'.repeat(MAX_ROOT_CAUSE) })).ok).toBe(true);
+    expect(parseActionForm('RESOLVE', fd({ summary: 's', rootCause: 'a'.repeat(MAX_ROOT_CAUSE + 1) }))).toMatchObject({ ok: false, errors: { rootCause: expect.any(String) } });
+  });
+  it('limits the feedback comment to 1000 characters', () => {
+    expect(MAX_ROOT_CAUSE).toBe(2000);
+    expect(MAX_FEEDBACK_COMMENT).toBe(1000);
+    expect(parseActionForm('FEEDBACK', fd({ rating: '4', comment: 'a'.repeat(MAX_FEEDBACK_COMMENT) })).ok).toBe(true);
+    expect(parseActionForm('FEEDBACK', fd({ rating: '4', comment: 'a'.repeat(MAX_FEEDBACK_COMMENT + 1) }))).toMatchObject({ ok: false, errors: { comment: expect.any(String) } });
+  });
+  it('never offers INFO_RESPONSE as a note type', () => {
+    expect(allowedNoteTypes(['INFO_RESPONSE', 'COMMENT'])).toEqual(['COMMENT']);
+    expect(parseNoteForm(fd({ type: 'INFO_RESPONSE', body: 'x' }), allowedNoteTypes(['INFO_RESPONSE', 'COMMENT'])).ok).toBe(false);
   });
 });

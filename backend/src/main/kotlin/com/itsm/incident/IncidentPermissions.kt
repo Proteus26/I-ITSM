@@ -42,9 +42,8 @@ fun Incident.actionsFor(actor: Actor): List<IncidentAction> {
 }
 
 /**
- * Note types [actor] may add right now. INFO_REQUEST is never listed: it is created by the request-info action.
- * INVESTIGATION is staff-only (assignee or administrator); INFO_RESPONSE is the reporter's answer while the
- * incident waits for information; COMMENT is open to everyone involved. Nothing can be added to a finished incident.
+ * Note types [actor] may add right now. INFO_REQUEST and INFO_RESPONSE are never listed: they are created by the
+ * request-info and resume actions. INVESTIGATION is staff-only (assignee or administrator); COMMENT is open to everyone involved. Nothing can be added to a finished incident.
  */
 fun Incident.noteTypesFor(actor: Actor): List<NoteType> {
     if (status in FINISHED) return emptyList()
@@ -52,7 +51,6 @@ fun Incident.noteTypesFor(actor: Actor): List<NoteType> {
     val staff = isActing(actor, Party.ASSIGNEE) || actor.isAdmin
     return buildList {
         if (staff) add(NoteType.INVESTIGATION)
-        if (reporter && status == IncidentStatus.PENDING_INFO) add(NoteType.INFO_RESPONSE)
         if (reporter || staff) add(NoteType.COMMENT)
     }
 }

@@ -4,6 +4,7 @@ import com.itsm.ApiClient
 import com.itsm.TestcontainersConfiguration
 import com.itsm.audit.AuditLogRepository
 import com.itsm.notification.NotificationRepository
+import com.itsm.sla.SlaMonitor
 import com.itsm.support.TestData
 import com.itsm.support.uid
 import com.itsm.user.Role
@@ -27,6 +28,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import java.time.Instant
 
 /** The incident API end to end over HTTP: reporting pipeline, lifecycle, visibility, lists, admin actions and categories. */
 @SpringBootTest
@@ -41,6 +43,7 @@ class P2ApiTest @Autowired constructor(
     private val jdbc: JdbcTemplate,
     private val audit: AuditLogRepository,
     private val notifications: NotificationRepository,
+    private val slaMonitor: SlaMonitor,
 ) {
     private val api = ApiClient(mvc, mapper)
     private val pw = "password123"
@@ -76,6 +79,7 @@ class P2ApiTest @Autowired constructor(
     @AfterEach
     fun cleanUp() {
         incidentIds.forEach {
+            jdbc.update("delete from sla_events where incident_id = ?", it)
             jdbc.update("delete from notifications where incident_id = ?", it)
             jdbc.update("delete from audit_log where incident_id = ?", it)
             jdbc.update("delete from incidents where id = ?", it) // notes cascade
@@ -195,7 +199,7 @@ class P2ApiTest @Autowired constructor(
         val pending = act(id, "request-info", techToken, mapOf("question" to "Which floor are you on?"))
         assertEquals("PENDING_INFO", pending["status"].asString())
         assertEquals(setOf("RESUME"), actions(detail(id, empToken)))
-        assertTrue("INFO_RESPONSE" in detail(id, empToken)["noteTypes"].map { it.asString() })
+        assertFalse("INFO_RESPONSE" in detail(id, empToken)["noteTypes"].map { it.asString() }) // answered through resume
 
         val resumed = act(id, "resume", empToken, mapOf("response" to "Third floor"))
         assertEquals("IN_PROGRESS", resumed["status"].asString())
@@ -287,13 +291,67 @@ class P2ApiTest @Autowired constructor(
         fun note(type: String, token: String) = status(api.post("/api/incidents/$id/notes", mapOf("type" to type, "body" to "text"), token))
 
         assertEquals(403, note("INVESTIGATION", empToken))
-        assertEquals(403, note("INFO_RESPONSE", empToken)) // not waiting for information
+        assertEquals(400, note("INFO_RESPONSE", empToken)) // answers go through resume
+        assertEquals(400, note("INFO_RESPONSE", techToken))
         assertEquals(400, note("INFO_REQUEST", techToken))
         assertEquals(201, note("INVESTIGATION", techToken))
         assertEquals(201, note("COMMENT", empToken))
         assertEquals(201, note("COMMENT", adminToken))
         assertEquals(403, note("COMMENT", otherToken))
         assertEquals(400, status(api.post("/api/incidents/$id/notes", mapOf("type" to "COMMENT", "body" to " "), empToken)))
+    }
+
+    @Test
+    fun `internal notes are hidden from everyone but the assignee and admins, even from a technician reporter`() {
+        val hash = encoder.encode(pw)!!
+        val reporterTech = technician("p2reptech", emptySet(), hash)
+        val reporterToken = api.token(reporterTech.email, pw)
+        val id = report(token = reporterToken, category = "NETWORK")["id"].asLong()
+        assertEquals(tech.uid, detail(id, reporterToken)["assignee"]["id"].asLong())
+
+        assertEquals(201, status(api.post("/api/incidents/$id/notes", mapOf("type" to "INVESTIGATION", "body" to "internal"), techToken)))
+        assertEquals(201, status(api.post("/api/incidents/$id/notes", mapOf("type" to "COMMENT", "body" to "public"), techToken)))
+
+        fun types(token: String) = api.json(api.get("/api/incidents/$id/notes", token)).map { it["type"].asString() }
+        assertEquals(listOf("COMMENT"), types(reporterToken))
+        assertEquals(listOf("INVESTIGATION", "COMMENT"), types(adminToken))
+        assertEquals(listOf("INVESTIGATION", "COMMENT"), types(techToken))
+    }
+
+    @Test
+    fun `reopening re-arms the SLA so the monitor records no false resolution breach`() {
+        val id = report(category = "SOFTWARE")["id"].asLong()
+        act(id, "acknowledge", techToken)
+        act(id, "start", techToken)
+        act(id, "resolve", techToken, mapOf("summary" to "Reinstalled"))
+        // Long after the original deadlines.
+        jdbc.update("update incidents set response_due_at = now() - interval '3 hours', resolution_due_at = now() - interval '2 hours' where id = ?", id)
+
+        val reopened = act(id, "reopen", empToken, mapOf("reason" to "Still broken"))
+        assertEquals("IN_PROGRESS", reopened["status"].asString())
+        assertTrue(Instant.parse(reopened["resolutionDueAt"].asString()).isAfter(Instant.now()), reopened["resolutionDueAt"].asString())
+
+        slaMonitor.runOnce(Instant.now())
+        val breaches = jdbc.queryForObject("select count(*) from sla_events where incident_id = ? and type = 'RESOLUTION_BREACH'", Int::class.javaObjectType, id)
+        assertEquals(0, breaches)
+    }
+
+    @Test
+    fun `an incident is never assigned to its own reporter, automatically or by an admin`() {
+        val hash = encoder.encode(pw)!!
+        val reporterTech = technician("p2reptech", setOf("NETWORK"), hash)
+        val reporterToken = api.token(reporterTech.email, pw)
+        jdbc.update("update users set available = false where id = ?", tech.uid) // the reporter would be the only candidate
+
+        val created = report(token = reporterToken, category = "NETWORK")
+        val id = created["id"].asLong()
+        assertEquals("CLASSIFIED", created["status"].asString())
+        assertTrue(created["assignee"].isNull)
+
+        val r = api.post("/api/admin/incidents/$id/assign", mapOf("technicianId" to reporterTech.uid), adminToken)
+        assertEquals(400, status(r), r.response.contentAsString)
+        assertTrue(r.response.contentAsString.contains("cannot assign an incident to its reporter"))
+        assertEquals(200, status(api.post("/api/admin/incidents/$id/assign", mapOf("technicianId" to tech.uid), adminToken)))
     }
 
     @Test

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../src/lib/errors';
-import { CAPACITY_BOUNDS, PAGE_BOUNDS, confirmMismatch, formErrorState, parseIntField, parseOptionalInt, parseSkills } from '../src/lib/forms';
+import { CAPACITY_BOUNDS, PAGE_BOUNDS, confirmMismatch, formErrorState, lookupNotice, parseIntField, parseOptionalInt, parseSkills } from '../src/lib/forms';
 
 describe('parseSkills', () => {
   it('trims and de-duplicates', () => {
@@ -104,5 +104,13 @@ describe('formatLogin', () => {
     expect(formatLogin('2026-11-12T21:46:00Z')).toBe('12 Nov 2026, 21:46 UTC');
     expect(formatLogin(null)).toBe('Never');
     expect(formatLogin(undefined)).toBe('Never');
+  });
+});
+
+describe('lookupNotice', () => {
+  const map = { saved: 'Saved.' };
+  it('finds own keys', () => expect(lookupNotice(map, 'saved')).toBe('Saved.'));
+  it('ignores inherited members and missing keys', () => {
+    for (const k of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'nope', '', null, undefined]) expect(lookupNotice(map, k)).toBeUndefined();
   });
 });

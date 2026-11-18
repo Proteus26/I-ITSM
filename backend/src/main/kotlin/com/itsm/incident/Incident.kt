@@ -248,7 +248,7 @@ class Incident(
     /**
      * Assigns a technician. From CLASSIFIED this moves the incident to ASSIGNED. From any active status (ASSIGNED,
      * ACKNOWLEDGED, IN_PROGRESS, PENDING_INFO) it reassigns, for example on SLA escalation: the new technician is
-     * set and the status goes back to ASSIGNED, so the new technician has to acknowledge. Only the system or an
+     * set and the status goes back to ASSIGNED, so the new technician has to acknowledge (acknowledgedAt is cleared). Only the system or an
      * administrator may assign. Assigning the current assignee again changes nothing. Any other status throws
      * [InvalidStateTransitionException].
      *
@@ -268,6 +268,7 @@ class Incident(
                 val from = status
                 assigneeId = technicianId
                 status = IncidentStatus.ASSIGNED
+                acknowledgedAt = null // the new technician has not responded yet; keeping it would hide a response-SLA breach
                 touch(now)
                 if (from == IncidentStatus.ASSIGNED) null else StatusChange(from, IncidentStatus.ASSIGNED)
             }

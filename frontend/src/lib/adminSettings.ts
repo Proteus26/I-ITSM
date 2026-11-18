@@ -118,3 +118,10 @@ export function parseServiceCriticality(form: FormData): ParseResult<{ id: numbe
   if (id === undefined || criticality === undefined) return { ok: false, errors: { criticality: 'Choose a criticality from 1 to 4.' } };
   return { ok: true, value: { id, criticality } };
 }
+
+/** Maps a backend `value` field error to the form field of the setting that was being saved. */
+export function settingFieldErrors(def: SettingDef, fieldErrors: Readonly<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fieldErrors)) out[k === 'value' ? def.field : k] = v;
+  return out;
+}

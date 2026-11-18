@@ -48,7 +48,7 @@ const current = links
         showAdmin && (
           <li class="admin-menu">
             <details>
-              <summary class:list={{ 'in-admin': inAdmin }}>Admin</summary>
+              <summary class:list={{ 'in-admin': inAdmin }}>Admin{inAdmin && <span class="sr-only"> (current section)</span>}</summary>
               <ul>
                 {adminLinks.map((l) => (
                   <li><a href={l.href} aria-current={path === l.href || path.startsWith(`${l.href}/`) ? 'page' : undefined}>{l.label}</a></li>
@@ -73,6 +73,7 @@ const current = links
     )
   }
 </header>
+{showAdmin && <script is:inline src="/scripts/nav-menu.js" defer></script>}
 
 <style>
   .site-header {

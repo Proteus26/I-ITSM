@@ -9,11 +9,9 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 interface IncidentRepository : JpaRepository<Incident, Long>, JpaSpecificationExecutor<Incident> {
     fun findByNumber(number: String): Incident?
 
-    fun findByReporterIdOrderByCreatedAtDesc(reporterId: Long): List<Incident>
-
-    fun findByAssigneeIdAndStatusInOrderByCreatedAtDesc(assigneeId: Long, statuses: Collection<IncidentStatus>): List<Incident>
-
     fun findByReporterId(reporterId: Long, pageable: Pageable): Page<Incident>
+
+    fun existsByReporterIdAndTitle(reporterId: Long, title: String): Boolean
 
     fun findByAssigneeIdAndStatusIn(assigneeId: Long, statuses: Collection<IncidentStatus>, pageable: Pageable): Page<Incident>
 

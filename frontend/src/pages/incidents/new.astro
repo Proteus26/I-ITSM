@@ -21,21 +21,9 @@ import type { CategorySummary, ServiceSummary } from '../../lib/incidentTypes';
 
 const api = backendFor(Astro.cookies);
 
-// The category and service lists only fill the drop-downs: if they fail the form still works without them.
-let services: ServiceSummary[] = [];
-let categories: CategorySummary[] = [];
-let error: string | null = null;
-let listsFailed = false;
-try {
-  [services, categories] = await Promise.all([api.listServices(), api.listCategories()]);
-} catch (e) {
-  const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
-  if (r instanceof Response) return r;
-  listsFailed = true;
-}
-
 let values = { ...EMPTY_REPORT_FORM };
 let fieldErrors: Record<string, string> = {};
+let error: string | null = null;
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -60,6 +48,19 @@ if (Astro.request.method === 'POST') {
   }
 }
 
+// The category and service lists only fill the drop-downs (fetched only now that the form is rendered):
+// if they fail the form still works without them.
+let services: ServiceSummary[] = [];
+let categories: CategorySummary[] = [];
+let listsFailed = false;
+try {
+  [services, categories] = await Promise.all([api.listServices(), api.listCategories()]);
+} catch (e) {
+  const r = await handleLoadError(e, Astro, { inlineServerErrors: true });
+  if (r instanceof Response) return r;
+  listsFailed = true;
+}
+
 const serviceOptions = [{ value: '', label: 'Not sure / not listed' }, ...services.map((s) => ({ value: String(s.id), label: s.name }))];
 const categoryOptions = [{ value: '', label: 'Let the system decide' }, ...categories.map((c) => ({ value: c.code, label: c.name }))];
 ---
@@ -79,9 +80,9 @@ const categoryOptions = [{ value: '', label: 'Let the system decide' }, ...categ
       <FormField name="affectedUsers" label="Affected users" type="number" min={1} value={values.affectedUsers} error={fieldErrors.affectedUsers} hint="About how many people have this problem (at least 1)." />
       <FormField name="serviceId" label="Service" value={values.serviceId} error={fieldErrors.serviceId} options={serviceOptions} hint="The IT service that is affected, if you know it." />
 
-      <div id="suggest-category" class="suggestions" hidden></div>
+      <div id="suggest-category" class="suggestions" role="status" aria-live="polite" hidden></div>
       <FormField name="categoryCode" label="Category" value={values.categoryCode} error={fieldErrors.categoryCode} options={categoryOptions} hint="Leave it on “Let the system decide” if you are unsure." />
-      <div id="suggest-similar" class="suggestions" hidden></div>
+      <div id="suggest-similar" class="suggestions" role="status" aria-live="polite" hidden></div>
 
       <button class="btn" type="submit">Report incident</button>
     </form>

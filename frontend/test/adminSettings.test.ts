@@ -7,6 +7,7 @@ import {
   parseServiceCriticality,
   parseSettingsForm,
   SETTING_DEFS,
+  settingFieldErrors,
   settingValue,
 } from '../src/lib/adminSettings';
 
@@ -64,5 +65,13 @@ describe('settings', () => {
     expect(parseServiceCriticality(fd({ serviceId: '4', criticality: '3' }))).toEqual({ ok: true, value: { id: 4, criticality: 3 } });
     for (const c of ['0', '5', '', 'x']) expect(parseServiceCriticality(fd({ serviceId: '4', criticality: c })).ok).toBe(false);
     expect(parseServiceCriticality(fd({ criticality: '2' })).ok).toBe(false);
+  });
+});
+
+describe('settingFieldErrors', () => {
+  it('maps a backend value error to the setting field', () => {
+    const def = SETTING_DEFS[0]!;
+    expect(settingFieldErrors(def, { value: 'Unknown strategy' })).toEqual({ [def.field]: 'Unknown strategy' });
+    expect(settingFieldErrors(def, { other: 'x' })).toEqual({ other: 'x' });
   });
 });

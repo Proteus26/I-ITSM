@@ -12,7 +12,7 @@
   var DELAY_MS = 700;
   var MIN_TITLE = 4;
   var MAX_TITLE = 200;
-  var MAX_TEXT = 4000;
+  var MAX_QUERY_TEXT = 500; // the backend only looks at the start of the description
   var timer = null;
   var controller = null;
   var lastKey = '';
@@ -81,8 +81,13 @@
 
   function run() {
     var t = title.value.trim();
-    var d = description.value.trim();
-    if (t.length < MIN_TITLE || t.length > MAX_TITLE || d.length > MAX_TEXT) {
+    var d = description.value.trim().slice(0, MAX_QUERY_TEXT);
+    if (t.length < MIN_TITLE || t.length > MAX_TITLE) {
+      // Forget the last query and cancel the request in flight, so suggestions can reappear
+      // after retyping and a late response cannot refill the cleared boxes.
+      lastKey = '';
+      if (controller) controller.abort();
+      controller = null;
       clear(catBox);
       clear(simBox);
       return;

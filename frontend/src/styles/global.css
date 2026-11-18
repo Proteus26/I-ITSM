@@ -360,7 +360,7 @@ legend {
   font-weight: normal;
 }
 
-input:not([type='checkbox']),
+input:not([type='checkbox']):not([type='radio']),
 select,
 textarea {
   font: inherit;
@@ -372,7 +372,7 @@ textarea {
   color: var(--text);
 }
 
-.field input:not([type='checkbox']),
+.field input:not([type='checkbox']):not([type='radio']),
 .field select,
 .field textarea {
   width: 100%;
@@ -386,6 +386,8 @@ textarea {
   background: var(--surface);
   color: var(--text);
   resize: vertical;
+  height: auto;
+  min-height: 6rem;
 }
 
 input[aria-invalid='true'],

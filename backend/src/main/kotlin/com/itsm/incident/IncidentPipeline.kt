@@ -103,7 +103,7 @@ class StandardIncidentPipeline(
         )
         val previous = incident.applyPriority(result.priority, result.score, context.now, result.explanation)
         if (previous != result.priority) {
-            events.publishEvent(PriorityChanged(requireNotNull(incident.id), null, previous, result.priority, result.explanation))
+            events.publishEvent(PriorityChanged(requireNotNull(incident.id), context.actor.userId, previous, result.priority, result.explanation))
         }
     }
 
@@ -116,7 +116,7 @@ class StandardIncidentPipeline(
     override fun assign(incident: Incident, context: ProcessingContext) {
         if (incident.status != IncidentStatus.CLASSIFIED) return
         val id = requireNotNull(incident.id)
-        val choice = assignment.assign(AssignmentRequest(id, incident.categoryCode, incident.priority)) ?: return
+        val choice = assignment.assign(AssignmentRequest(id, incident.categoryCode, incident.priority, excludeTechnicianIds = setOf(incident.reporterId))) ?: return
         val change = incident.assign(choice.technicianId, Actor.SYSTEM, context.now)
         events.publishEvent(IncidentAssigned(id, null, choice.technicianId, choice.strategy))
         if (change != null) events.publishEvent(StatusChanged(id, null, change.from, change.to))

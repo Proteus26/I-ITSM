@@ -4,15 +4,16 @@ import Alert from '../../components/Alert.astro';
 import FormField from '../../components/FormField.astro';
 import StatusBadge from '../../components/StatusBadge.astro';
 import { backendFor } from '../../lib/backend';
+import { CATEGORY_CODE } from '../../lib/incidents';
 import { MAX_CATEGORY_DESCRIPTION, MAX_CATEGORY_NAME, normalizeCategoryCode, parseCreateCategory, parseEditCategory } from '../../lib/adminSettings';
-import { formErrorState, formString, parseActive } from '../../lib/forms';
+import { formErrorState, formString, lookupNotice, parseActive } from '../../lib/forms';
 import { dispatchIntent, UNKNOWN_INTENT_MESSAGE } from '../../lib/intent';
 import { handleLoadError } from '../../lib/loadError';
 import type { AdminCategory } from '../../lib/incidentTypes';
 
 const api = backendFor(Astro.cookies);
 const NOTICES: Record<string, string> = { created: 'Category created.', updated: 'Category saved.', activated: 'Category activated.', deactivated: 'Category deactivated.' };
-const notice = Astro.request.method === 'GET' ? NOTICES[Astro.url.searchParams.get('notice') ?? ''] : undefined;
+const notice = Astro.request.method === 'GET' ? lookupNotice(NOTICES, Astro.url.searchParams.get('notice')) : undefined;
 
 let error: string | null = null;
 let fieldErrors: Record<string, string> = {};
@@ -39,6 +40,11 @@ if (Astro.request.method === 'POST') {
         return Astro.redirect('/admin/categories?notice=created');
       },
       edit: async () => {
+        if (!CATEGORY_CODE.test(code)) {
+          error = 'Invalid request.';
+          Astro.response.status = 400;
+          return;
+        }
         const parsed = parseEditCategory(form);
         if (!parsed.ok) {
           failedForm = code;
@@ -52,7 +58,7 @@ if (Astro.request.method === 'POST') {
       },
       'set-active': async () => {
         const wanted = parseActive(formString(form, 'active'));
-        if (wanted === undefined || !code) {
+        if (wanted === undefined || !CATEGORY_CODE.test(code)) {
           error = 'Invalid request.';
           Astro.response.status = 400;
           return;
