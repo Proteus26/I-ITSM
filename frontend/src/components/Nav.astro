@@ -91,6 +91,7 @@ const current = links
   }
   .brand { font-weight: 700; font-size: 1.15rem; text-decoration: none; color: var(--text); }
   ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; list-style: none; margin: 0; padding: 0; }
+  nav > ul { align-items: center; }
   .admin-menu details { position: relative; }
   .admin-menu summary { cursor: pointer; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
   .admin-menu summary.in-admin { border-bottom-color: var(--primary); font-weight: 600; }
@@ -108,7 +109,7 @@ const current = links
     border-radius: var(--radius);
   }
   .admin-menu details > ul a { display: block; padding: 0.35rem 0; }
-  nav a { text-decoration: none; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
+  nav a { display: block; text-decoration: none; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
   nav a[aria-current='page'] { border-bottom-color: var(--primary); font-weight: 600; }
   .who { margin-left: auto; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
   .who form { margin: 0; }
@@ -117,6 +118,7 @@ const current = links
   @media (max-width: 40rem) {
     .site-header { gap: 0.25rem 1rem; }
     nav { margin-left: auto; flex: 1 1 100%; }
+    nav > ul { row-gap: 0; }
     .admin-menu details > ul { position: static; border: 0; padding: 0 0 0 0.75rem; }
     .who { flex: 1 0 100%; margin-left: 0; flex-wrap: nowrap; padding-top: 0.25rem; border-top: 1px solid var(--border); }
     .who-name { min-width: 0; }
