@@ -26,14 +26,16 @@ const choices = categories ? skillChoices(categories, selected.split(',')) : [];
       <legend>Skills</legend>
       {choices.length === 0 && <p class="muted">There are no active categories.</p>}
       {
-        choices.map((c) => (
-          <div class="field">
-            <div class="checkbox">
-              <input id={`skill-${c.value}`} name="skill" type="checkbox" value={c.value} checked={c.checked} />
-              <label for={`skill-${c.value}`}>{c.label}</label>
-            </div>
+        choices.length > 0 && (
+          <div class="choices">
+            {choices.map((c) => (
+              <div class="checkbox">
+                <input id={`skill-${c.value}`} name="skill" type="checkbox" value={c.value} checked={c.checked} />
+                <label for={`skill-${c.value}`}>{c.label}</label>
+              </div>
+            ))}
           </div>
-        ))
+        )
       }
       <p class="hint">Incidents of these categories are preferred when a technician is chosen automatically.</p>
       {error && <p class="error"><span class="sr-only">Error: </span>{error}</p>}

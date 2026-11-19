@@ -334,7 +334,7 @@ const technicianOptions = [
                             <>
                               <fieldset aria-describedby={e.rating ? 'fb-rating-error' : undefined}>
                                 <legend>Rating</legend>
-                                <div class="button-row">
+                                <div class="choices choices-inline">
                                   {[1, 2, 3, 4, 5].map((n) => (
                                     <label class="checkbox">
                                       <input type="radio" name="rating" value={String(n)} checked={val(intent, 'rating') === String(n)} required />
