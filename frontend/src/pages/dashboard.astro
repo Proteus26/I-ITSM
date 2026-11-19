@@ -241,7 +241,7 @@ const busiest = Math.max(1, ...workloadRows.map((w) => w.activeIncidents));
           </div>
         )}
 
-        <div class="action-grid">
+        <div class="action-grid action-grid-equal">
           <section class="card" aria-labelledby="h-sla">
             <h2 id="h-sla">SLA compliance</h2>
             {sla && !sla.ok && <Alert kind="warning">Not available: {failureText(sla.error)}</Alert>}

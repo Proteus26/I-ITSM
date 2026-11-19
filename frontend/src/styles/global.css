@@ -268,16 +268,15 @@ h2 {
   text-align: center;
 }
 
-/* Users filter form: equal-height controls on one baseline */
+/* Filter forms: a grid, so the controls of every row share the same columns */
 .filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1rem;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr));
+  gap: 1rem;
+  align-items: end;
 }
 
 .filters .field {
-  flex: 1 1 11rem;
   margin-bottom: 0;
 }
 
@@ -308,6 +307,17 @@ th {
   white-space: nowrap;
 }
 
+/* Inside a card the outer columns line up with the card's own text. */
+.card th:first-child,
+.card td:first-child {
+  padding-left: 0;
+}
+
+.card th:last-child,
+.card td:last-child {
+  padding-right: 0;
+}
+
 .nowrap {
   white-space: nowrap;
 }
@@ -318,6 +328,14 @@ td time:not([title]) {
   display: inline-block;
   min-width: 7rem;
   text-wrap: balance;
+}
+
+td .plain-list li:first-child {
+  padding-top: 0;
+}
+
+td .plain-list li:last-child {
+  padding-bottom: 0;
 }
 
 dl.details {
@@ -516,6 +534,11 @@ main details[open] > summary {
 
 .action-grid > .card {
   margin-bottom: 0;
+}
+
+/* Cards of text rather than forms: the cards of a row share one height. */
+.action-grid-equal {
+  align-items: stretch;
 }
 
 .button-row {
@@ -768,6 +791,13 @@ h3 {
 .stat-success { border-left: 4px solid var(--success); }
 .stat-success .stat-value { color: var(--success); }
 
+/* The accent is 3px wider than the plain border; take it out of the padding so every tile's text starts on one line. */
+.stat-danger,
+.stat-warn,
+.stat-success {
+  padding-left: calc(1.1rem - 3px);
+}
+
 .big-number {
   margin: 0 0 0.5rem;
   font-size: 2.5rem;
@@ -803,6 +833,7 @@ h3 {
 /* Highlighted blocks and rows */
 .callout {
   border-left: 4px solid var(--border);
+  padding-left: calc(1.5rem - 3px);
 }
 
 .callout-warn { border-left-color: var(--warn-border); }
