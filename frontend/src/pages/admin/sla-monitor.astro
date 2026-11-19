@@ -90,7 +90,7 @@ const sections: { id: string; title: string; hint: string; items: SlaRiskItem[];
                     {s.items.map((i) => (
                       <tr>
                         <td data-label="Incident">
-                          <a href={`/incidents/${i.incidentId}`}>{i.number}</a> {i.title}
+                          <a class="nowrap" href={`/incidents/${i.incidentId}`}>{i.number}</a> {i.title}
                           {i.serviceName && <span class="muted"> ({i.serviceName})</span>}
                         </td>
                         <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>

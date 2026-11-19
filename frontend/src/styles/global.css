@@ -308,6 +308,18 @@ th {
   white-space: nowrap;
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
+/* A full date-time in a table breaks after the date at most ("19 Nov 2026," / "15:16 UTC"), never inside it.
+   Short forms (a date only, "due in 14m") carry the full value in a title and are left alone. */
+td time:not([title]) {
+  display: inline-block;
+  min-width: 7rem;
+  text-wrap: balance;
+}
+
 dl.details {
   display: grid;
   grid-template-columns: max-content 1fr;
