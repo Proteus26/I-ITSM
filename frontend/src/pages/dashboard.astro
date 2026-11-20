@@ -183,7 +183,7 @@ const busiest = Math.max(1, ...workloadRows.map((w) => w.activeIncidents));
                   <tbody>
                     {queue.map((i, n) => (
                       <tr class:list={[{ 'row-overdue': queueTone[n] === 'overdue', 'row-at-risk': queueTone[n] === 'at-risk' }]}>
-                        <td data-label="Number"><a href={incidentHref(i.id)}>{i.number}</a></td>
+                        <td data-label="Number"><a class="nowrap" href={incidentHref(i.id)}>{i.number}</a></td>
                         <td data-label="Title">{i.title}</td>
                         <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>
                         <td data-label="Status"><IncidentStatusBadge status={i.status} /></td>
@@ -241,7 +241,7 @@ const busiest = Math.max(1, ...workloadRows.map((w) => w.activeIncidents));
           </div>
         )}
 
-        <div class="action-grid">
+        <div class="action-grid action-grid-equal">
           <section class="card" aria-labelledby="h-sla">
             <h2 id="h-sla">SLA compliance</h2>
             {sla && !sla.ok && <Alert kind="warning">Not available: {failureText(sla.error)}</Alert>}
@@ -295,7 +295,7 @@ const busiest = Math.max(1, ...workloadRows.map((w) => w.activeIncidents));
                   <tbody>
                     {needsAction.map((i) => (
                       <tr>
-                        <td data-label="Number"><a href={incidentHref(i.id)}>{i.number}</a></td>
+                        <td data-label="Number"><a class="nowrap" href={incidentHref(i.id)}>{i.number}</a></td>
                         <td data-label="Title">{i.title}</td>
                         <td data-label="Status"><IncidentStatusBadge status={i.status} /></td>
                         <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>

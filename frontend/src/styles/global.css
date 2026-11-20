@@ -268,16 +268,15 @@ h2 {
   text-align: center;
 }
 
-/* Users filter form: equal-height controls on one baseline */
+/* Filter forms: a grid, so the controls of every row share the same columns */
 .filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1rem;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr));
+  gap: 1rem;
+  align-items: end;
 }
 
 .filters .field {
-  flex: 1 1 11rem;
   margin-bottom: 0;
 }
 
@@ -308,6 +307,37 @@ th {
   white-space: nowrap;
 }
 
+/* Inside a card the outer columns line up with the card's own text. */
+.card th:first-child,
+.card td:first-child {
+  padding-left: 0;
+}
+
+.card th:last-child,
+.card td:last-child {
+  padding-right: 0;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* A full date-time in a table breaks after the date at most ("19 Nov 2026," / "15:16 UTC"), never inside it.
+   Short forms (a date only, "due in 14m") carry the full value in a title and are left alone. */
+td time:not([title]) {
+  display: inline-block;
+  min-width: 7rem;
+  text-wrap: balance;
+}
+
+td .plain-list li:first-child {
+  padding-top: 0;
+}
+
+td .plain-list li:last-child {
+  padding-bottom: 0;
+}
+
 dl.details {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -334,8 +364,12 @@ dl.details dd {
 fieldset {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.75rem 1rem 0.25rem;
+  padding: 0.75rem 1rem 1rem;
   margin: 0 0 1.25rem;
+}
+
+fieldset > :last-child {
+  margin-bottom: 0;
 }
 
 legend {
@@ -351,6 +385,19 @@ legend {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+/* A group of checkboxes (stacked) or radio buttons (inline) */
+.choices {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.choices-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
 }
 
 /* Form controls (FormField, CheckboxField and the filter form) */
@@ -409,6 +456,18 @@ textarea[aria-invalid='true'] {
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+form > .hint {
+  margin-bottom: 1rem;
+}
+
+.card > form + form {
+  margin-top: 0.75rem;
+}
+
+main details[open] > summary {
+  margin-bottom: 0.75rem;
 }
 
 .error {
@@ -477,6 +536,11 @@ textarea[aria-invalid='true'] {
   margin-bottom: 0;
 }
 
+/* Cards of text rather than forms: the cards of a row share one height. */
+.action-grid-equal {
+  align-items: stretch;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -521,6 +585,10 @@ textarea[aria-invalid='true'] {
 
 .plain-list li:last-child {
   border-bottom: 0;
+}
+
+.plain-list + form {
+  margin-top: 1rem;
 }
 
 .suggestions {
@@ -580,11 +648,9 @@ textarea[aria-invalid='true'] {
     border-radius: var(--radius);
   }
 
+  /* The label floats, so a cell can hold any mix of text, links and badges and still read as one value. */
   table.stack td {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: space-between;
-    align-items: baseline;
+    display: flow-root;
     padding: 0.4rem 0;
     border-bottom: 1px solid var(--border);
     text-align: right;
@@ -597,15 +663,40 @@ textarea[aria-invalid='true'] {
 
   table.stack td::before {
     content: attr(data-label);
-    flex: 0 0 6rem;
+    float: left;
+    width: 6rem;
+    margin-right: 0.75rem;
+    line-height: 1.5rem;
     font-weight: 600;
     font-size: 0.85rem;
     color: var(--muted);
     text-align: left;
+    white-space: normal;
+  }
+
+  table.stack th[scope='row'] {
+    display: block;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 1rem;
+    color: var(--text);
+  }
+
+  table.stack td .inline-form {
+    justify-content: flex-end;
   }
 
   dl.details {
     grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  dl.details dt {
+    font-size: 0.85rem;
+  }
+
+  dl.details dd + dt {
+    margin-top: 0.6rem;
   }
 }
 
@@ -700,6 +791,13 @@ h3 {
 .stat-success { border-left: 4px solid var(--success); }
 .stat-success .stat-value { color: var(--success); }
 
+/* The accent is 3px wider than the plain border; take it out of the padding so every tile's text starts on one line. */
+.stat-danger,
+.stat-warn,
+.stat-success {
+  padding-left: calc(1.1rem - 3px);
+}
+
 .big-number {
   margin: 0 0 0.5rem;
   font-size: 2.5rem;
@@ -735,6 +833,7 @@ h3 {
 /* Highlighted blocks and rows */
 .callout {
   border-left: 4px solid var(--border);
+  padding-left: calc(1.5rem - 3px);
 }
 
 .callout-warn { border-left-color: var(--warn-border); }
@@ -767,9 +866,12 @@ tr.row-at-risk {
   box-shadow: inset 4px 0 0 var(--warn-border);
 }
 
-section[aria-labelledby] > .row-between > h2,
-section[aria-labelledby] > h2 {
+section[aria-labelledby] > .row-between > h2 {
   margin: 0;
+}
+
+section[aria-labelledby] > h2 {
+  margin: 0 0 0.75rem;
 }
 
 section[aria-labelledby] {

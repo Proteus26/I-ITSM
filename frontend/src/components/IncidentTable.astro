@@ -37,7 +37,7 @@ const now = new Date();
           const overdue = due.overdue || marker === 'OVERDUE';
           return (
             <tr>
-              <td data-label="Number"><a href={incidentHref(i.id)}>{i.number}</a></td>
+              <td data-label="Number"><a class="nowrap" href={incidentHref(i.id)}>{i.number}</a></td>
               <td data-label="Title">{i.title}</td>
               <td data-label="Status"><IncidentStatusBadge status={i.status} /></td>
               <td data-label="Priority"><PriorityBadge priority={i.priority} /></td>
@@ -45,8 +45,8 @@ const now = new Date();
               <td data-label="Created"><time datetime={i.createdAt}>{formatDateTime(i.createdAt)}</time></td>
               <td data-label="Due">
                 {i.resolutionDueAt ? <time datetime={i.resolutionDueAt}>{due.text}</time> : '—'}
-                {overdue && <span class="badge badge-danger overdue">Overdue</span>}
-                {!overdue && marker === 'AT_RISK' && <span class="badge badge-warn">At risk</span>}
+                {overdue && <>{' '}<span class="badge badge-danger">Overdue</span></>}
+                {!overdue && marker === 'AT_RISK' && <>{' '}<span class="badge badge-warn">At risk</span></>}
               </td>
             </tr>
           );

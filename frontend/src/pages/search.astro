@@ -138,7 +138,7 @@ const label = humanize;
               <tbody>
                 {result.content.map((i) => (
                   <tr>
-                    <td data-label="Number">{i.number}</td>
+                    <td data-label="Number" class="nowrap">{i.number}</td>
                     <td data-label="Title">{i.title}</td>
                     <td data-label="Status">{label(i.status)}</td>
                     <td data-label="Priority">{i.priority ?? '—'}</td>

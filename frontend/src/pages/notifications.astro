@@ -112,15 +112,15 @@ if (result && result.totalPages > 0 && page >= result.totalPages) {
             <p>{unreadOnly ? 'You have no unread notifications.' : 'You have no notifications yet.'}</p>
           </div>
         ) : (
-          <ul class="notes">
+          <ul class="notif-list">
             {result.content.map((n) => {
               const link = safeInternalLink(n.link);
               return (
-                <li class:list={['card', 'note', { unread: !n.read }]}>
-                  <div class="note-main">
-                    <p class="note-title">
+                <li class:list={['card', 'notif', { unread: !n.read }]}>
+                  <div class="notif-main">
+                    <p class="notif-title">
                       {link ? <a href={link}>{n.title}</a> : n.title}
-                      {!n.read && <span class="note-new">New</span>}
+                      {!n.read && <span class="notif-new">New</span>}
                     </p>
                     <p>{n.body}</p>
                     <p class="muted">
@@ -160,11 +160,13 @@ if (result && result.totalPages > 0 && page >= result.totalPages) {
 </script>
 
 <style>
-  .notes { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.5rem; }
-  .note { display: flex; gap: 1rem; justify-content: space-between; align-items: flex-start; }
-  .note.unread { border-left: 4px solid var(--primary); }
-  .note p { margin: 0 0 0.25rem; }
-  .note-title { font-weight: 600; }
-  .note-new { margin-left: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--primary); }
-  .note form { margin: 0; flex: none; }
+  .notif-list { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.75rem; }
+  .notif { display: flex; gap: 1rem; justify-content: space-between; align-items: flex-start; margin: 0; padding: 1rem 1.25rem; }
+  .notif.unread { border-left: 4px solid var(--primary); padding-left: calc(1.25rem - 3px); }
+  .notif p { margin: 0 0 0.25rem; }
+  .notif p:last-child { margin-bottom: 0; }
+  .notif-main { min-width: 0; overflow-wrap: anywhere; }
+  .notif-title { font-weight: 600; }
+  .notif-new { margin-left: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--primary); }
+  .notif form { margin: 0; flex: none; }
 </style>

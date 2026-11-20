@@ -225,6 +225,11 @@ const FIELDS = [
 
 <style>
   .num { width: 7rem; }
+  /* Wide (unstacked) table: row label and Save button sit on the input's centre line instead of the top of the cell. */
+  @media (min-width: 40.01rem) {
+    tbody th { padding-top: calc(0.6rem + (2.5rem - 1.5em) / 2); }
+    td .inline-form { min-height: 2.5rem; }
+  }
   .human { display: block; font-size: 0.85rem; }
   .override-group { margin-bottom: 1.5rem; }
   .override-group h3 { margin-bottom: 0.5rem; }
